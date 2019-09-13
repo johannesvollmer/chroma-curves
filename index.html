@@ -1,0 +1,54 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <title>Color Curves</title>
+    <link rel="shortcut icon" href="img/favicon.png"/>
+
+    <link rel="stylesheet" href="css/layout.css">
+    <link rel="stylesheet" href="css/theme.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
+    <meta name="theme-color" content="rgb(255, 53, 154)"/>
+
+    <script type="text/javascript" src="js/index.js"></script>
+  </head>
+
+  <body>
+    <canvas id="gl">
+      This website expects an up-to-date <i>brauser</i> (WebGl2)
+    </canvas>
+
+    <div id="overlay">
+      <div>
+        <h1>Color Curves</h1>
+      </div>
+
+      <label id="image-label">
+        <input type="file" id="image-input" accept="image/*"/>
+        <div id="image-label-content">Click to choose a file, or drop it anywhere on this page</div>
+      </label>
+
+      <div class="content-option">
+        Input Axes: Luminance
+        Reset
+      </div>
+
+      <div class="content-option">
+        Output Axes: Luminance
+        Reset
+      </div>
+
+      <div>
+        About
+      </div>
+    </div>
+
+    <div id="loading" class="hidden">
+      Loading...
+    </div>
+
+    <script type="text/javascript">
+      main()
+    </script>
+  </body>
+</html>

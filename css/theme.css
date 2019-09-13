@@ -1,0 +1,21 @@
+
+body {
+    color: #eee !important;
+}
+
+label {
+    cursor: pointer;
+}
+
+#image-label-content {
+    border: 2px dashed rgba(255, 255, 255, 0.6);
+}
+
+#image-label.drag-over #image-label-content, #image-label:hover #image-label-content {
+    color: rgb(255, 53, 154);
+    border: 2px dashed rgba(255, 53, 154, 0.6);
+}
+
+#loading {
+    background-color: #000a;
+}
