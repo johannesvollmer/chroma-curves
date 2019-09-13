@@ -19,32 +19,47 @@
     </canvas>
 
     <div id="overlay">
-      <div>
-        <h1>Color Curves</h1>
+      <div id="title">
+        <h1>COLOR CURVES</h1>
+        <a href="https://github.com/johannesvollmer/chroma-curves" target="_blank", rel="noopener noreferrer">learn more</a>
       </div>
 
       <label id="image-label">
-        <input type="file" id="image-input" accept="image/*"/>
-        <div id="image-label-content">Click to choose a file, or drop it anywhere on this page</div>
+        <input type="file" id="image-input" accept="image/*"/><!--
+        --><img id="original" class="content-option" alt="The original Image without any color grading"/><!--
+        --><div id="image-label-content">Click here to choose a file<br>or drop it anywhere on this page</div>
       </label>
 
-      <div class="content-option">
-        Input Axes: Luminance
-        Reset
+      <div class="content-option" id="axes">
+        depending on
+        <div class="toggle-buttons">
+          <input type="radio" name="input-axis" id="input-luminance" checked><!--
+       --><label for="input-luminance">Luminance</label><!--
+
+       --><input type="radio" name="input-axis" id="input-chroma"><!--
+       --><label for="input-chroma">Chroma</label><!--
+
+       --><input type="radio" name="input-axis" id="input-hue"><!--
+       --><label for="input-hue">Hue</label>
+        </div>,
+        
+        modify&nbsp;<!-- 
+      --><div class="toggle-buttons"><!-- 
+        --><input type="radio" name="output-axis" id="output-luminance" checked><!--
+       --><label for="output-luminance">Luminance</label><!--
+
+       --><input type="radio" name="output-axis" id="output-chroma"><!--
+       --><label for="output-chroma">Chroma</label><!--
+
+       --><input type="radio" name="output-axis" id="output-hue"><!--
+       --><label for="output-hue">Hue</label>
+        </div>
       </div>
 
-      <div class="content-option">
-        Output Axes: Luminance
-        Reset
-      </div>
-
-      <div>
-        About
-      </div>
     </div>
 
     <div id="loading" class="hidden">
-      Loading...
+      Preparing the Image. Please wait.
     </div>
 
     <script type="text/javascript">

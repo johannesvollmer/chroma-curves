@@ -10,6 +10,7 @@
     font-family: 'Roboto Condensed', "Roboto", "Ubuntu", "Cantarell", sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    box-sizing: border-box;
 }
 
 body {
@@ -23,25 +24,74 @@ body > * {
     top: 0; left: 0;
 }
 
-body.with-content > #overlay {
+#overlay {
     width: 20vw;
+    min-width: 200px;
+    max-width: 60vw;
+
+    resize: horizontal;
+    overflow-x: hidden;
+
+    overflow-y: auto;
+}
+
+body.with-content #overlay:not(:hover) {
+    opacity: 0.4;
 }
 
 body:not(.with-content) .content-option {
     display: none;
 }
 
+#image-label {
+    display: grid; 
+    width: 100%;
+}
+
+body.with-content #image-label:not(:hover) #image-label-content {
+    display: none;
+}
+#image-label > * {
+    width: 100%;
+    height: 100%;
+}
+
+.toggle-buttons {
+    display: inline;
+}
+.toggle-buttons input {
+    display: none;
+}
+.toggle-buttons label {
+    padding: 6px;
+}
+
 #overlay {
-    display: flex;
-    flex-direction: column;
-    align-items: stretch;
+    padding: 24px;
 }
 #overlay > * {
+    width: 100%;
     margin: 6px;
+    margin-top: 32px;
+}
+
+#axes {
+    padding: 4px;
+    line-height: 2.5em;
+}
+
+#loading {
+    text-align: center;
+    vertical-align: middle;
+    padding-left: 40vw;
+    padding-right: 40vw;
+    padding-top: 40vh;
+    padding-bottom: 40vh;
 }
 
 label input {
     display: none;
+    border: none;
 }
 
 .hidden {
@@ -52,3 +102,7 @@ label input {
     padding: 12px;
 }
 
+#original {
+    width: 100%;
+    height: auto;
+}

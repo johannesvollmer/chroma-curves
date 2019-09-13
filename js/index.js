@@ -3,6 +3,7 @@ function main(){
     const label = document.getElementById("image-label") 
     const canvas = document.getElementById("gl")
     const loading = document.getElementById("loading")
+    const original = document.getElementById("original")
 
     const gl = canvas.getContext("webgl2")
     const background = 0.1
@@ -114,7 +115,8 @@ function main(){
 
     // also, activates and deactivates loading screen
     function updateSourceImage(src){
-        loading.classList.remove("hidden")        
+        loading.classList.remove("hidden")   
+        original.src = null     
 
         const sourceImage = new Image()
         sourceImage.crossOrigin = '*'
@@ -138,6 +140,7 @@ function main(){
         }
 
         sourceImage.src = src
+        original.src = src
     }
 
     // resize canvas and open gl if window is resized
@@ -159,14 +162,15 @@ function main(){
             gl.vertexAttribPointer(vertexPositionAttribute, 2, gl.FLOAT, false, 0, 0)
             gl.useProgram(program)
     
-            const overallScale = 1.1
+            const overallScale = 1.5
             const aspect = imageAspect / canvasAspect
+            const offsetX = 0.3 // (1 / aspect - 1) * overallScale //  / imageAspect // TOOD +1?
 
             // scale the image according to aspect ratio and fit it into the view
             const scale = aspect > 1? [overallScale, -overallScale * aspect] : [overallScale / aspect, -overallScale]
             gl.uniform2fv(viewScaleUniform, scale)
 
-            gl.uniform2f(viewOffsetUniform, 0, 0)
+            gl.uniform2f(viewOffsetUniform, -offsetX, 0)
             gl.bindTexture(gl.TEXTURE_2D, image)
             
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)

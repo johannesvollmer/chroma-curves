@@ -1,6 +1,6 @@
 
 body {
-    color: #eee !important;
+    color: #eee;
 }
 
 label {
@@ -8,14 +8,58 @@ label {
 }
 
 #image-label-content {
-    border: 2px dashed rgba(255, 255, 255, 0.6);
+    background-color: rgb(255, 53, 154);
 }
 
-#image-label.drag-over #image-label-content, #image-label:hover #image-label-content {
-    color: rgb(255, 53, 154);
-    border: 2px dashed rgba(255, 53, 154, 0.6);
+#overlay {
+    transition: opacity 0.1s;
 }
+
 
 #loading {
+    display: block;
     background-color: #000a;
+
+    opacity: 1;
+    pointer-events: all;
+    transition: opacity 0.3s;
+    transition-delay: 0.3s; /* wait before showing loading screen (do not display at all for small images) */
+}
+#loading.hidden {
+    display: block;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s;
+}
+
+#overlay {
+    background-color: #000a;
+}
+
+a {
+    color: #ddd;
+    text-decoration: none;
+}
+
+a:hover {
+    color: rgb(255, 53, 154);
+}
+
+a:active { 
+    color: #fff;
+}
+
+#title a {
+    color: #888;
+}
+
+#title a:hover {
+    color: #ddd;
+}
+
+.toggle-buttons > * {
+    background-color: #555;
+}
+input:checked + label {
+    background-color: rgb(255, 53, 154);
 }
