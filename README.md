@@ -1,3 +1,4 @@
 # Chroma Curves
 
-This is a UX experiment to explore colorgrading mechanisms. 
+[This website](https://johannesvollmer.github.io/chroma-curves/) 
+is a UX experiment to explore colorgrading mechanisms. 
