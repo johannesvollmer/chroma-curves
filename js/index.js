@@ -12,39 +12,129 @@ function main(){
         throw "WebGL2 not found"
     }
 
+
+    const conversionFunctions = `
+    vec3 rgb_to_srgb(vec3 rgb) {
+        return pow(rgb, vec3(2.2));
+    }
+
+    vec3 srgb_to_rgb(vec3 rgb) {
+        return pow(rgb, vec3(1.0 / 2.2));
+    }
+    
+    vec3 rgb_to_xyz(vec3 rgb) {
+        vec3 srgb = rgb_to_srgb(rgb);
+
+        vec3 xyz = vec3( // TODO make this a matrix multiplication?
+            0.4124564 * srgb.r + 0.3575761 * srgb.g + 0.1804375 * srgb.b,
+            0.2126729 * srgb.r + 0.7151522 * srgb.g + 0.0721750 * srgb.b,
+            0.0193339 * srgb.r + 0.1191920 * srgb.g + 0.9503041 * srgb.b
+        );
+
+        return xyz / vec3(94.811, 100.0, 107.304);
+    }
+
+    vec3 xyz_to_rgb(vec3 xyz) {
+        xyz *= vec3(94.811, 100.0, 107.304);
+
+        // TODO companding?  see http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
+        return srgb_to_rgb(vec3(  // TODO make this a matrix multiplication?
+            3.24045420 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z,
+            -0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z,
+            0.05564340 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z
+        ));
+    }
+
+    vec3 xyz_to_lab(vec3 xyz) {
+        float e = 216.0 / 24389.0;
+        float k = 24389.0 / 27.0;
+        float thrd = 1.0 / 3.0;
+
+        float fx = xyz.x > e ? pow(xyz.x, thrd) : (k*xyz.x + 16.0) / 116.0;
+        float fy = xyz.y > e ? pow(xyz.y, thrd) : (k*xyz.y + 16.0) / 116.0;
+        float fz = xyz.z > e ? pow(xyz.z, thrd) : (k*xyz.z + 16.0) / 116.0;
+
+        return vec3(
+            166.0 * fy - 16.0,
+            500.0 * (fx - fy),
+            200.0 * (fy - fz)
+        );
+    }
+
+    vec3 lab_to_xyz(vec3 lab) {
+        float e = 216.0 / 24389.0;
+        float k = 24389.0 / 27.0;
+        float l = lab.x;
+        float a = lab.y;
+        float b = lab.z;
+
+        // http://www.brucelindbloom.com/index.html?Eqn_Lab_to_XYZ.html
+        float fy = (l + 16.0) / 166.0;
+        float fz = fy - (b / 200.0);
+        float fx = a / 500.0 + fy;
+
+        float fxp3 = pow(fx, 3.0);
+        float fzp3 = pow(fz, 3.0);
+
+        return vec3(
+            fxp3 > e ? fxp3 : (116.0 * fx - 16.0) / k,
+            l > k*e ? pow((l + 16.0) / 116.0, 3.0) : l / k,
+            fzp3 > e ? fzp3 : (116.0 * fz - 16.0) / k
+        );
+    }
+
+    vec3 rgb_to_lab(vec3 rgb) {
+        // return xyz_to_lab(rgb_to_xyz(rgb));
+        return rgb_to_xyz(rgb);
+    }
+
+    vec3 lab_to_rgb(vec3 lab) {
+        // return xyz_to_rgb(lab_to_xyz(lab));
+        return xyz_to_rgb(lab);
+    }
+    `
+
     const fragment = compileShader(gl.FRAGMENT_SHADER, `#version 300 es
-        precision mediump float;
-        uniform sampler2D source;
-        in vec2 pixel;
-        out vec4 fragColor;
+    precision highp float;
+    uniform sampler2D source; // TODO store as LAB colors
+    
+    uniform sampler2D offsetByLuminance; // unset these if not modifying?
 
-        void main(){
-            // pixel would be outside of the image
-            if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x > 1.0 || pixel.y > 1.0){
-                fragColor = vec4(vec3(${background}), 1.0);
-            }
+    in vec2 pixel;
+    out vec4 fragColor;
 
-            // pixel is inside the image
-            else {
-                vec4 source = texture(source, pixel).rgba;
-                vec3 result = source.rgb * 0.8 + 0.2;
-                result.b *= 0.8;
-                fragColor = vec4(result, source.a);
-            }
+    ${conversionFunctions}
+
+    void main(){
+        // pixel would be outside of the image
+        if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x > 1.0 || pixel.y > 1.0){
+            fragColor = vec4(vec3(${background}), 1.0);
         }
+
+        // pixel is inside the image
+        else {
+            vec4 sourcePixel = texture(source, pixel);
+            vec3 lab = rgb_to_lab(sourcePixel.rgb);
+
+            // float luminance = lab.y;
+            // lab += texture(offsetByLuminance, vec2(luminance, 0.5)).xyz;
+
+            fragColor = vec4(lab_to_rgb(lab), sourcePixel.a); // TODO alpha curves?
+        }
+    }
     `)
     
     const vertex = compileShader(gl.VERTEX_SHADER, `#version 300 es
-        precision mediump float;
-        in vec2 vertex;
-        uniform vec2 viewScale; // also accounts for aspect ratio of image and canvas 
-        uniform vec2 viewOffset;
-        out vec2 pixel;
-        
-        void main() {
-            pixel = (vertex * viewScale + viewOffset) * 0.5 + 0.5;
-            gl_Position = vec4(vertex, 0.0, 1.0);
-        }
+    precision highp float;
+    in vec2 vertex;
+    uniform vec2 viewScale; // also accounts for aspect ratio of image and canvas 
+    uniform vec2 viewOffset;
+    out vec2 pixel;
+    
+    void main() {
+        pixel = (vertex * viewScale + viewOffset) * 0.5 + 0.5;
+        gl_Position = vec4(vertex, 0.0, 1.0);
+    }
     `)
 
     gl.clearColor(background, background, background, 1.0)
@@ -198,7 +288,8 @@ function main(){
         gl.compileShader(shader)
 
         if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) 
-            throw "Shader Compile Error: " + gl.getShaderInfoLog(shader)
+            throw "Shader Compile Error: " + gl.getShaderInfoLog(shader) 
+                + "\n\nin\n\n" + source.split("\n").map((el, idx) => idx + ": " + el).join("\n")
         
         return shader
     }
