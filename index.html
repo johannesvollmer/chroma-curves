@@ -52,9 +52,18 @@
        --><label for="output-chroma">Chroma</label><!--
 
        --><input type="radio" name="output-axis" id="output-hue"><!--
-       --><label for="output-hue">Hue</label>
+       --><label for="output-hue">Hue</label>.
         </div>
       </div>
+
+      <div id="curve-settings" class="content-option">
+        <h3>Curve Details</h3>
+          Mode: Shift. <br><br>
+          Intensity: <input id="intensity-slider" type="range" min="0" max="100"> <br>
+          <input type="button" id="reset-curve" value="Reset">
+      </div>
+      
+
     </div>
 
 
@@ -75,6 +84,8 @@
         <use xlink:href="#path-data" class="path-stroke"/>
         <use xlink:href="#path-data" class="path-fill"/>
       </g>
+
+      <g id="control-points" vector-effect="non-scaling-stroke"></g>
     </svg>
 
 

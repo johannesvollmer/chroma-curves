@@ -5,6 +5,9 @@ function main(){
     const loading = document.getElementById("loading")
     const original = document.getElementById("original")
     const path = document.getElementById("curve-path")
+    const controlPoints = document.getElementById("control-points")
+    const intensity = document.getElementById("intensity-slider")
+    const reset = document.getElementById("reset-curve")
 
     const gl = canvas.getContext("webgl2")
     const background = 0.1
@@ -100,6 +103,17 @@ function main(){
 
     ${conversionFunctions}
 
+    float checker(float t, float size){
+        return int(t/size) % 2 == 1 ? 1.0 : 0.0;
+        // float sine = sin(t / size);
+        // float sine3 = sine*sine*sine;
+        // return (sine3*sine3*sine3) * 0.5 + 0.5;
+    }
+
+    float check(float t, float replacement){
+        return t > 1.0 || t < 0.0? replacement : t;
+    }
+
     void main(){
         // pixel would be outside of the image
         if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x > 1.0 || pixel.y > 1.0){
@@ -111,12 +125,19 @@ function main(){
             vec4 sourcePixel = texture(source, pixel);
             vec3 lab = rgb_to_lab(sourcePixel.rgb);
 
-            float luminance01 = lab.x / 130.0; // TODO divide by max XYZ Y value
-            lab += (texture(offsetByLuminance, vec2(luminance01, 0.5)).xyz - 0.5) * 100.0 * offsetByLuminanceFactor;
+            float luminance01 = lab.x / 116.0; // TODO divide by max XYZ Y value
+            lab += (texture(offsetByLuminance, vec2(luminance01, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
 
-            fragColor = vec4(lab_to_rgb(lab), sourcePixel.a); // TODO alpha curves?
+            vec3 result = lab_to_rgb(lab);
+            float checked = checker(pixel.x + pixel.y, 0.007);
+            result.r = check(result.r, min((sourcePixel.r - checked) * 10.0, 1.0));
+            result.g = check(result.g, min((sourcePixel.g - checked) * 10.0, 1.0));
+            result.b = check(result.b, min((sourcePixel.b - checked) * 10.0, 1.0));
+
+            fragColor = vec4(result, sourcePixel.a); // TODO alpha curves?
         }
     }
+
     `)
     
     const vertex = compileShader(gl.VERTEX_SHADER, `#version 300 es
@@ -155,10 +176,11 @@ function main(){
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertexData), gl.STATIC_DRAW)
     gl.vertexAttribPointer(vertexPositionAttribute, 2, gl.FLOAT, false, 0, 0)
 
+    const xmlns = "http://www.w3.org/2000/svg"
 
     const curve = Array(256).fill(128)
 
-    const points = [ {x:0, y:0.3, size: 0.001}, {x:0.5, y:0.5, size: 0.003}, {x:1, y:-0.3, size: 0.005} ]
+    const points = [ {x:0, y:0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:1.0, size: 0.05} ]
     updateSVGFromPoints()
 
 
@@ -166,11 +188,22 @@ function main(){
     gl.bindTexture(gl.TEXTURE_2D, curveMap)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
     updateCurveData()
 
-    // path.setAttributeNS(null, "d", "M 1,97.857143 C 19.285714,96.428571 24.016862,131.64801 90.714286,132.85714 140.78762,133.7649 202.79376,66.16041 202.79376,66.16041")
 
     function updateSVGFromPoints(){
+        controlPoints.innerHTML = ""
+        points.map(point => {
+            const circle = document.createElementNS(xmlns, "circle")
+            circle.setAttributeNS(null, "cx", point.x)
+            circle.setAttributeNS(null, "cy", 1 - (point.y * 0.5 + 0.5))
+            circle.setAttributeNS(null, "r", "0.01")
+            return circle
+        })
+        .forEach(controlPoints.appendChild.bind(controlPoints))
+
         for(let index = 0; index < curve.length; index++){
             const x = index / (curve.length - 1)
 
@@ -182,7 +215,7 @@ function main(){
                 value += wheight * point.y
             }
 
-            curve[index] = value * 0.5 + 0.5
+            curve[index] = value * 0.2 + 0.5
         }
 
         const pathString = "M 0," + (1-curve[0]) + " " + curve.map((y, x) => "L " + (x / (curve.length - 1)) + "," + (1-y)).join(" ") 
@@ -192,6 +225,9 @@ function main(){
     function updateCurveData(){
         const height = 1
         const width = curve.length
+        
+        console.log(curve)
+
         gl.bindTexture(gl.TEXTURE_2D, curveMap)
         gl.texImage2D(
             gl.TEXTURE_2D, 0, gl.RGBA, width, height, 
@@ -203,8 +239,13 @@ function main(){
 
     // when uploaded, contains the open gl texture id
     let image = null
+    let labImage = null // TODO precompute rgb->lab to save time and to generate histograms
     let imageAspect = 1
     
+    intensity.addEventListener("input", event => {
+        draw()
+    })
+
     input.addEventListener("change", event => {
         updateSourceImageFromFile(event.target.files)
     })
@@ -214,7 +255,6 @@ function main(){
         endFileDrag(event)
     })
 
-    
     window.addEventListener("dragenter", startFileDrag)
     window.addEventListener("dragstart", startFileDrag)
 
@@ -265,6 +305,9 @@ function main(){
 
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
             gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+
             gl.generateMipmap(gl.TEXTURE_2D)
 
             imageAspect = sourceImage.width / sourceImage.height
@@ -310,7 +353,7 @@ function main(){
             gl.activeTexture(gl.TEXTURE0)
             gl.bindTexture(gl.TEXTURE_2D, image)
 
-            gl.uniform1f(luminanceOffsetFactorUniform, 1)
+            gl.uniform1f(luminanceOffsetFactorUniform, intensity.value)
             gl.uniform1i(luminanceOffsetMapUniform, 1)
             gl.activeTexture(gl.TEXTURE1)
             gl.bindTexture(gl.TEXTURE_2D, curveMap)
