@@ -56,6 +56,10 @@ body.with-content #image-label:not(:hover) #image-label-content {
     height: 100%;
 }
 
+#curve-container {
+    padding: 64px;
+}
+
 .toggle-buttons {
     display: inline;
 }
@@ -73,6 +77,12 @@ body.with-content #image-label:not(:hover) #image-label-content {
     width: 100%;
     margin: 6px;
     margin-top: 32px;
+}
+
+#toggle-hide {
+    position: absolute;
+    right: 0;
+    top: 10px;
 }
 
 #axes {

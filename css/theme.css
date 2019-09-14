@@ -63,3 +63,12 @@ a:active {
 input:checked + label {
     background-color: rgb(255, 53, 154);
 }
+
+.path-stroke {
+    stroke: black;
+    stroke-width: 5px;
+}
+.path-fill {
+    stroke: white;
+    stroke-width: 3px;
+}

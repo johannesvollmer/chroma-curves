@@ -20,7 +20,7 @@
 
     <div id="overlay">
       <div id="title">
-        <h1>COLOR CURVES</h1>
+        <h1>CHROMA CURVES</h1>
         <a href="https://github.com/johannesvollmer/chroma-curves" target="_blank", rel="noopener noreferrer">learn more</a>
       </div>
 
@@ -55,12 +55,33 @@
        --><label for="output-hue">Hue</label>
         </div>
       </div>
-
     </div>
+
+
+    <svg 
+      width="100%" height="100%" 
+      viewBox="0 0 1 1"
+      xmlns:xlink="http://www.w3.org/1999/xlink" 
+      style="pointer-events: none" 
+      class="content-option"
+     >
+      <defs>
+        <symbol id="path-data">
+          <path id="curve-path" vector-effect="non-scaling-stroke"/>
+        </symbol>
+      </defs>
+      
+      <g fill="transparent">
+        <use xlink:href="#path-data" class="path-stroke"/>
+        <use xlink:href="#path-data" class="path-fill"/>
+      </g>
+    </svg>
+
 
     <div id="loading" class="hidden">
-      Preparing the Image. Please wait.
+      Preparing the Image. This should take only a few seconds.
     </div>
+
 
     <script type="text/javascript">
       main()
