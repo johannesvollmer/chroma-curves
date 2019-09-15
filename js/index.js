@@ -17,55 +17,59 @@ function main(){
     }
 
 
+    // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
     const conversionFunctions = `
+    const vec3 white_point = vec3(94.811, 100.0, 107.304);
+    const vec3 lab_range = vec3(100.0, 128.0, 128.0);
+
+    const float lab_e = 216.0 / 24389.0;
+    const float lab_k = 24389.0 / 27.0;
+    const float lab_ek = lab_e * lab_k;
+
+    const float third = 1.0 / 3.0;
+
+    const float gamma = 2.2;
+    const float inverseGamma = 1.0 / gamma;
+
+    const mat3 srgb_to_xyz_matrix = mat3(
+        0.4124564, 0.3575761, 0.1804375,
+        0.2126729, 0.7151522, 0.0721750,
+        0.0193339, 0.1191920, 0.9503041
+    );
+
+    const mat3 xyz_to_srgb_matrix = mat3(
+         3.24045420, -1.5371385, -0.4985314,
+        -0.96926600,  1.8760108,  0.0415560,
+         0.05564340, -0.2040259,  1.0572252
+    );
+
     vec3 rgb_to_srgb(vec3 rgb) {
-        return pow(rgb, vec3(2.2));
+        return pow(rgb, vec3(gamma));
     }
 
     vec3 srgb_to_rgb(vec3 rgb) {
-        return pow(rgb, vec3(1.0 / 2.2));
+        return pow(rgb, vec3(inverseGamma));
     }
     
     vec3 rgb_to_xyz(vec3 rgb) {
-        vec3 srgb = rgb_to_srgb(rgb);
-
-        vec3 xyz = vec3( // TODO make this a matrix multiplication?
-            0.4124564 * srgb.r + 0.3575761 * srgb.g + 0.1804375 * srgb.b,
-            0.2126729 * srgb.r + 0.7151522 * srgb.g + 0.0721750 * srgb.b,
-            0.0193339 * srgb.r + 0.1191920 * srgb.g + 0.9503041 * srgb.b
-        );
-
-        return xyz / vec3(94.811, 100.0, 107.304); // reference white
+        return (rgb_to_srgb(rgb) * srgb_to_xyz_matrix) / white_point; 
     }
 
-    // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
     vec3 xyz_to_rgb(vec3 xyz) {
-        xyz *= vec3(94.811, 100.0, 107.304); // reference white
-        return srgb_to_rgb(vec3( // TODO companding? // TODO make this a matrix multiplication?
-            3.24045420 * xyz.x - 1.5371385 * xyz.y - 0.4985314 * xyz.z,
-            -0.9692660 * xyz.x + 1.8760108 * xyz.y + 0.0415560 * xyz.z,
-            0.05564340 * xyz.x - 0.2040259 * xyz.y + 1.0572252 * xyz.z
-        ));
+        return srgb_to_rgb((xyz * white_point) * xyz_to_srgb_matrix); 
     }
 
-    vec3 xyz_to_lab(vec3 xyz) {
-        float thrd = 1.0 / 3.0;
-        float e = 216.0 / 24389.0;
-        float k = 24389.0 / 27.0;
-
-        float fx = xyz.x > e ? pow(xyz.x, thrd) : (k*xyz.x + 16.0) / 116.0;
-        float fy = xyz.y > e ? pow(xyz.y, thrd) : (k*xyz.y + 16.0) / 116.0;
-        float fz = xyz.z > e ? pow(xyz.z, thrd) : (k*xyz.z + 16.0) / 116.0;
-
-        return vec3(116.0 * fy - 16.0, 500.0 * (fx - fy), 200.0 * (fy - fz));
+    float float_to_lab(float t){
+        return t > lab_e ? pow(t, third) : (lab_k * t + 16.0) / 116.0;
     }
 
+    vec3 xyz_to_nlab(vec3 xyz) {
+        vec3 f = vec3(float_to_lab(xyz.x), float_to_lab(xyz.y), float_to_lab(xyz.z));
+        return vec3(116.0 * f.y - 16.0, 500.0 * (f.x - f.y), 200.0 * (f.y - f.z)) / lab_range; // normalize common lab values to 0..1
+    }
 
-    // http://www.brucelindbloom.com/index.html?Eqn_Lab_to_XYZ.html
-    vec3 lab_to_xyz(vec3 lab) {
-        float e = 216.0 / 24389.0;
-        float k = 24389.0 / 27.0;
-
+    vec3 nlab_to_xyz(vec3 lab) {
+        lab *= lab_range;
         float fy = (lab.x + 16.0) / 116.0;
         float fz = fy - (lab.z / 200.0);
         float fx = lab.y / 500.0 + fy;
@@ -73,21 +77,20 @@ function main(){
         float fz3 = pow(fz, 3.0);
 
         return vec3(
-            fx3 > e ? fx3 : ((116.0 * fx - 16.0) / k),
-            lab.x > k*e ? pow((lab.x + 16.0) / 116.0, 3.0) : lab.x / k,
-            fz3 > e ? fz3 : (116.0 * fz - 16.0) / k
+            fx3 > lab_e ? fx3 : ((116.0 * fx - 16.0) / lab_k),
+            lab.x > lab_ek ? pow((lab.x + 16.0) / 116.0, 3.0) : lab.x / lab_k,
+            fz3 > lab_e ? fz3 : (116.0 * fz - 16.0) / lab_k
         );
     }
 
     vec3 rgb_to_lab(vec3 rgb) {
-        return xyz_to_lab(rgb_to_xyz(rgb));
+        return xyz_to_nlab(rgb_to_xyz(rgb));
     }
 
     vec3 lab_to_rgb(vec3 lab) {
-        return xyz_to_rgb(lab_to_xyz(lab));
+        return xyz_to_rgb(nlab_to_xyz(lab));
     }
     `
-
 
 
     
@@ -125,8 +128,7 @@ function main(){
             vec4 sourcePixel = texture(source, pixel);
             vec3 lab = rgb_to_lab(sourcePixel.rgb);
 
-            float luminance01 = lab.x / 116.0; // TODO divide by max XYZ Y value
-            lab += (texture(offsetByLuminance, vec2(luminance01, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
+            lab *= 1.0 + (texture(offsetByLuminance, vec2(lab.x, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
 
             vec3 result = lab_to_rgb(lab);
             float checked = checker(pixel.x + pixel.y, 0.007);
@@ -178,9 +180,9 @@ function main(){
 
     const xmlns = "http://www.w3.org/2000/svg"
 
-    const curve = Array(256).fill(128)
+    const curve = Array(256)
 
-    const points = [ {x:0, y:0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:1.0, size: 0.05} ]
+    const points = [ { x:0, y:1, size: 0.001 } ] // [ {x:0, y:-0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:-1.0, size: 0.05} ]
     updateSVGFromPoints()
 
 
@@ -195,14 +197,16 @@ function main(){
 
     function updateSVGFromPoints(){
         controlPoints.innerHTML = ""
-        points.map(point => {
-            const circle = document.createElementNS(xmlns, "circle")
-            circle.setAttributeNS(null, "cx", point.x)
-            circle.setAttributeNS(null, "cy", 1 - (point.y * 0.5 + 0.5))
-            circle.setAttributeNS(null, "r", "0.01")
-            return circle
-        })
-        .forEach(controlPoints.appendChild.bind(controlPoints))
+        
+        points
+            .map(point => {
+                const circle = document.createElementNS(xmlns, "circle")
+                circle.setAttributeNS(null, "cx", point.x)
+                circle.setAttributeNS(null, "cy", 1 - (point.y * 0.5 + 0.5))
+                circle.setAttributeNS(null, "r", "0.01")
+                return circle
+            })
+            .forEach(controlPoints.appendChild.bind(controlPoints))
 
         for(let index = 0; index < curve.length; index++){
             const x = index / (curve.length - 1)
@@ -215,25 +219,28 @@ function main(){
                 value += wheight * point.y
             }
 
-            curve[index] = value * 0.2 + 0.5
+            curve[index] = value * 0.5 + 0.5
         }
 
-        const pathString = "M 0," + (1-curve[0]) + " " + curve.map((y, x) => "L " + (x / (curve.length - 1)) + "," + (1-y)).join(" ") 
+        const pathString = "M 0," + (1-(curve[0])) + " " + curve.map((y, x) => "L " + (x / (curve.length - 1)) + "," + (1-(y))).join(" ") 
         path.setAttributeNS(null, "d", pathString)
     }
 
     function updateCurveData(){
         const height = 1
         const width = curve.length
-        
-        console.log(curve)
 
+        console.log(
+            new Uint8Array(curve.flatMap(y => [y * 256, 128, 128, 128])))
+        
         gl.bindTexture(gl.TEXTURE_2D, curveMap)
         gl.texImage2D(
             gl.TEXTURE_2D, 0, gl.RGBA, width, height, 
-            0, gl.RGBA, gl.UNSIGNED_BYTE, 
+            0, gl.RGBA, gl.UNSIGNED_BYTE,
             new Uint8Array(curve.flatMap(y => [y * 256, 128, 128, 128]))
-        )    
+            // 0, gl.RGBA32F, gl.FLOAT,
+            // new Float32Array(curve.flatMap(y => [y, 0, 0, 0]))
+        )
     }
 
 
@@ -349,13 +356,14 @@ function main(){
 
             gl.uniform2f(viewOffsetUniform, -offsetX, 0)
 
-            gl.uniform1i(sourceTextureUniform, 0)
             gl.activeTexture(gl.TEXTURE0)
+            gl.uniform1i(sourceTextureUniform, 0)
             gl.bindTexture(gl.TEXTURE_2D, image)
 
             gl.uniform1f(luminanceOffsetFactorUniform, intensity.value)
-            gl.uniform1i(luminanceOffsetMapUniform, 1)
+            
             gl.activeTexture(gl.TEXTURE1)
+            gl.uniform1i(luminanceOffsetMapUniform, 1)
             gl.bindTexture(gl.TEXTURE_2D, curveMap)
 
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
