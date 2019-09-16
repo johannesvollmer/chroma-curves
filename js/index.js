@@ -48,6 +48,14 @@ function main(){
             return vec * vec * vec;
         }
 
+        float wrap(float x){
+            x = fract(x);
+            if (x < 0.0) 
+                x += 1.0;
+            return x;
+        }
+
+
         // expects vec2(length, angle)
         vec2 polar_to_cartesian(vec2 polar){
             polar.y *= tau;
@@ -126,6 +134,10 @@ function main(){
 
         uniform sampler2D chromaLimits;
 
+        uniform float maxLightness;
+        uniform float minLightness;
+        uniform float maxChroma;
+
         in vec2 pixel;
         out vec4 fragColor;
 
@@ -135,8 +147,8 @@ function main(){
             return int(t/size) % 2 == 1;
         }
 
-        float check(float t, float replacement){
-            return t > 1.0 || t < 0.0? replacement : t;
+        bool check(float t){
+            return t > 1.0 || t < 0.0;
         }
 
         float sigmoid(float x){
@@ -159,49 +171,31 @@ function main(){
                 vec4 src = texture(source, pixel);
                 vec3 lch = rgb_to_lch(src.rgb);
 
-                vec3 amount = (texture(offsetByLuminance, vec2(lch.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
-                // lab *= 1.0 + amount;
-                // lab.x = bend(lab.x, amount.x, 0.0, 1.0);
-                // lab.x = offsetByLuminanceFactor;
+                vec3 amount = (texture(offsetByLuminance, vec2(lch.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor; // FIXME shouldnt need *16
+                vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
+                // lightness_limits = mix(vec2(0.0, 1.0), lightness_limits, keepInsideGamut);
+
+                lch.x = bend(lch.x, amount.x, lightness_limits.x, lightness_limits.y);
                 
-                lch.y *= offsetByLuminanceFactor;
+                // lch.y *= offsetByLuminanceFactor;
                 // lab = vec3(lab.x, lab.yz * rotation);
 
-                float max_chroma = texture(chromaLimits, vec2(lch.x, lch.z)).y;
-                lch.y = max_chroma;
+                // float chroma_limit = texture(chromaLimits, vec2(lch.x, wrap(lch.z))).y; // manually wrap to repeat hue circle
 
                 vec3 result = lch_to_rgb(lch);
-                vec3 checked = checker(pixel.x + pixel.y, 0.007) ? src.rgb : vec3(1.0);
+                vec3 checked = checker(pixel.x + pixel.y, 0.007) ? vec3(1.0) : vec3(0.0);
 
-                // result.r = check(result.r, checked.r);
-                // result.g = check(result.g, checked.g);
-                // result.b = check(result.b, checked.b);
+                result = check(result.r) || check(result.g) || check(result.g) ? 
+                    mix(src.rgb, checked, 0.8) : result;
 
                 fragColor = vec4(result, src.a); // TODO alpha curves?
             }
         }
     `
-    
-    // used to compute a histogram
-    const toLABFragment = `#version 300 es
-        precision highp float;
-        uniform sampler2D source;
-
-        in vec2 pixel;
-        out vec4 fragColor;
-
-        ${conversionFunctions}
-
-        void main(){
-            vec4 src = texture(source, pixel);
-            vec3 lab = rgb_to_lab(src.rgb);
-            fragColor = vec4(lab.x, lab.y * 0.5 + 0.5, lab.z * 0.5 + 0.5, src.a);
-        }
-    `
 
     const vertex = `#version 300 es
         precision highp float;
-        in vec2 vertex;
+        layout (location=0) in vec2 vertex;
         uniform vec2 viewScale; // also accounts for aspect ratio of image and canvas 
         uniform vec2 viewOffset;
         out vec2 pixel;
@@ -212,7 +206,46 @@ function main(){
         }
     `
 
+    
 
+    const lchImageResolution = 256
+    const lchImage = createTexture(gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE)
+    updateArrayTexture(lchImage, lchImageResolution, lchImageResolution, gl.RGBA, null)
+
+    const tolchImage = linkProgram(
+        `#version 300 es
+            precision highp float;
+
+            layout (location=0) in vec2 vertex;
+            out vec2 pixel;
+            
+            void main() {
+                pixel = vertex * 0.5 + 0.5;
+                gl_Position = vec4(vertex, 0.0, 1.0);
+            }
+        `,
+
+        `#version 300 es
+            precision highp float;
+
+            in vec2 pixel;
+            uniform sampler2D source;
+            out vec4 fragColor;
+
+            ${conversionFunctions}
+
+            void main(){
+                vec4 src = texture(source, pixel);
+                fragColor = vec4(rgb_to_lch(src.rgb), src.a);
+            }
+        `
+    )
+
+    const toLCHImageUniform = gl.getUniformLocation(tolchImage, "source")
+
+
+
+    const framebuffer = gl.createFramebuffer()
 
     gl.clearColor(background, background, background, 1.0)
 
@@ -226,10 +259,14 @@ function main(){
 
     const luminanceOffsetMapUniform = gl.getUniformLocation(program, "offsetByLuminance")
     const luminanceOffsetFactorUniform = gl.getUniformLocation(program, "offsetByLuminanceFactor")
+    
+    const maxLightnessUniform = gl.getUniformLocation(program, "maxLightness")
+    const minLightnessUniform = gl.getUniformLocation(program, "minLightness")
+    const maxChromaUniform = gl.getUniformLocation(program, "maxChroma")
 
     const chromaLimitsUniform = gl.getUniformLocation(program, "chromaLimits")
 
-    const vertexPositionAttribute = gl.getAttribLocation(program, "vertex")
+    const vertexPositionAttribute =  0 // gl.getAttribLocation(program, "vertex")
     gl.enableVertexAttribArray(vertexPositionAttribute)
 
     // create a full-screen quad made of 2 triangles
@@ -243,7 +280,7 @@ function main(){
 
     const curve = Array(256)
 
-    const points = [ { x:0, y:1, size: 0.001 } ] // [ {x:0, y:-0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:-1.0, size: 0.05} ]
+    const points = [ { x:1, y:-1, size: 0.003 } ] // [ {x:0, y:-0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:-1.0, size: 0.05} ]
     updateSVGFromPoints()
 
 
@@ -293,8 +330,12 @@ function main(){
 
     // when uploaded, contains the open gl texture id
     let image = null
-    let labImage = null // TODO precompute rgb->lab to save time and to generate histograms
     let imageAspect = 1
+
+    let maxLightness = 0.0
+    let minLightness = 1.0
+    let maxChroma = 0.0
+
     
     intensity.addEventListener("input", event => {
         draw()
@@ -357,6 +398,22 @@ function main(){
             imageAspect = sourceImage.width / sourceImage.height
             updateImageTexture(image, sourceImage, true)
 
+            const pixels = renderToTexture(lchImage, lchImageResolution, lchImageResolution, () => {
+                gl.useProgram(tolchImage)
+                bindTexture(toLCHImageUniform, image, 0)
+            }, true)
+
+            // compute histogram
+            maxLightness = 0.0
+            minLightness = 1.0
+            maxChroma = 0.0
+            for(let i = 0; i < pixels.length; i+=4){
+                const [l, c] = [pixels[i], pixels[i + 1]]
+                if (l > maxLightness) maxLightness = l
+                if (l < minLightness) minLightness = l
+                if (c > maxChroma) maxChroma = c
+            }
+
             draw()
             loading.classList.add("hidden")      
         }
@@ -366,34 +423,28 @@ function main(){
     }
 
 
-
-
-    const chromaLimits /* depending on vec2(Lighntess, Hue) */ = createTexture(gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.REPEAT) // repeat hue, clamp lightness
-    updateArrayTexture(chromaLimits, 256, 256, gl.RGBA, null)
+    // this texture is a constant and should be statically served as png
+    const limitsResolution = 256 // more would exceed source image texture bit depth
+    const chromaLimits /* depending on vec2(Lighntess, Hue) */ = createTexture(gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE) // repeat hue, clamp lightness
+    updateArrayTexture(chromaLimits, limitsResolution, limitsResolution, gl.RGBA, null)
 
     const computeChromaLimits = linkProgram(
         `#version 300 es
             precision highp float;
 
-            in vec2 vertex;
-
-            out float lightness;
-            out float hue;
+            layout (location=0) in vec2 vertex;
+            out vec2 pixel;
             
             void main() {
-                lightness = vertex.x * 0.5 + 0.5;
-                hue = vertex.y * 0.5 + 0.5;
+                pixel = vertex * 0.5 + 0.5;
                 gl_Position = vec4(vertex, 0.0, 1.0);
             }
         `,
 
-        // binary-search maximum chroma for the corresponding hue and lightness
         `#version 300 es
             precision highp float;
-            const int iterations = 16;
 
-            in float lightness;
-            in float hue;
+            in vec2 pixel;
 
             out vec4 fragColor;
 
@@ -407,42 +458,100 @@ function main(){
                 return valid(rgb.r) && valid(rgb.g) && valid(rgb.b);
             }
 
-            void main(){
-                vec3 lch = vec3(lightness, 0.5, hue); // start with approximate chroma-limit 0.5
-                float step = 0.25;
-                vec3 rgb;
+            bool lch_valid(vec3 lch){
+                return rgb_valid(lch_to_rgb(lch));
+            }
 
-                for(int i = 0; i < iterations; i++){
-                    rgb = lch_to_rgb(lch);
-                    if (rgb_valid(rgb)) lch.y += step;
-                    else lch.y -= step;
+            // binary-search limits of RGB-gamut inside LCH space
+            // chroma depending on vec2(lightness, hue)
+            float max_chroma(){
+                // start with approximate chroma-limit 0.5
+                vec3 lch = vec3(pixel.x, 0.5, pixel.y); 
+                float step = 0.25;
+
+                for(int i = 0; i < 12; i++){
+                    lch.y += lch_valid(lch)? step : -step;
                     step *= 0.5;
                 }
 
-                // two more steps, to always be inside the gamut
-                rgb = lch_to_rgb(lch);
-                if (!rgb_valid(rgb))
-                    lch.y -= step;
-                    
-                rgb = lch_to_rgb(lch);
-                if (!rgb_valid(rgb))
-                    lch.y -= step;
+                // possibly step back, to always be inside the gamut
+                lch.y -= lch_valid(lch)? 0.0 : 1.0 / 255.0; 
+                lch.y -= lch_valid(lch)? 0.0 : 1.0 / 255.0; 
+                return lch.y;
+            }
 
-                fragColor = vec4(0.0, lch.y, 0.0, 1.0);
+            // TODO: use the generated chromalimit texture to step along the border of the gamut?
+            // linearly find min and max lightness of the gamut 
+            // lightness depending on vec2(chroma, hue)
+            vec2 min_max_lightness(){
+                const int iterations = 256;
+                const float step = 1.0 / (float(iterations) - 1.0);
+
+                vec3 lch = vec3(0.0, pixel.x, pixel.y);
+                float min = 0.2;
+                float max = 0.8;
+
+                bool previously_inside = false;
+                float previous = 0.0;
+
+                for(int i = 0; i < iterations; i++){
+                    bool inside = lch_valid(lch);
+
+                    if (inside && !previously_inside){
+                        min = lch.x;
+                    }
+
+                    if (!inside && previously_inside){
+                        max = previous;
+                    }
+
+                    previously_inside = inside;
+                    previous = lch.x;
+                    lch.x += step;
+                }
+
+                // possibly step back two more times, to always be inside the gamut
+                return vec2(min, max);
+            }
+
+            void main(){
+                vec2 lightness_limits = min_max_lightness();
+                fragColor = vec4(lightness_limits.x, max_chroma(), 0.0, lightness_limits.y);
             }
         `
     )
 
-    const framebuffer = gl.createFramebuffer()
-    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, chromaLimits, 0)
 
-    gl.viewport(0,0, 256, 256)
-    gl.useProgram(computeChromaLimits)
-    gl.bindBuffer(gl.ARRAY_BUFFER, vertices)
-    gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
+    renderToTexture(chromaLimits, limitsResolution, limitsResolution, () => {
+        gl.useProgram(computeChromaLimits)
+    })
+
+
+    function renderToTexture(texture, width, height, useProgram, read){
+        gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer)
+        gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0)
+        gl.viewport(0,0, width, height)
+
+        useProgram()
+        gl.bindBuffer(gl.ARRAY_BUFFER, vertices)
+        gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
+        
+        let result = null
+        if (read){
+            result = new Uint8Array(width * height * 4)
+            gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, result)
+        }
+
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+        gl.viewport(0, 0, canvas.width, canvas.height)
+
+        return result
+    }
     
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null)
+
+
+
+
 
 
     // resize canvas and open gl if window is resized
@@ -454,6 +563,7 @@ function main(){
     })
 
     function draw(){
+
         if (image === null){
             gl.clear(gl.COLOR_BUFFER_BIT)
         }
