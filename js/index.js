@@ -115,11 +115,12 @@ function main(){
     }
 
     float sigmoid(float x){
-        return tanh(x) * 0.99999;
+        return tanh(x);
     }
 
-    float bend(float x, float delta, float minX, float maxX){
-        return mix(x, delta > 0.0 ? maxX : minX, sigmoid(abs(delta)));
+    float bend(float current, float amount, float min, float max){
+        float target = amount > 0.0 ? max : min;
+        return mix(current, target, sigmoid(abs(amount)));
     }
 
     void main(){
