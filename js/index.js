@@ -20,7 +20,7 @@ function main(){
     // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
     const conversionFunctions = `
     const vec3 white_point = vec3(94.811, 100.0, 107.304);
-    const vec3 lab_range = vec3(100.0, 128.0, 128.0);
+    const vec3 lab_range = vec3(100.0, 128.0, 128.0); // FIXME Shouldnt this be 100 instead of 116?
 
     const float lab_e = 216.0 / 24389.0;
     const float lab_k = 24389.0 / 27.0;
@@ -92,8 +92,6 @@ function main(){
     }
     `
 
-
-    
     const fragment = compileShader(gl.FRAGMENT_SHADER, `#version 300 es
     precision highp float;
     uniform sampler2D source; // TODO store as LAB colors
@@ -104,17 +102,24 @@ function main(){
     in vec2 pixel;
     out vec4 fragColor;
 
+    const float e = 2.71828182846;
+
     ${conversionFunctions}
 
     float checker(float t, float size){
         return int(t/size) % 2 == 1 ? 1.0 : 0.0;
-        // float sine = sin(t / size);
-        // float sine3 = sine*sine*sine;
-        // return (sine3*sine3*sine3) * 0.5 + 0.5;
     }
 
     float check(float t, float replacement){
         return t > 1.0 || t < 0.0? replacement : t;
+    }
+
+    float sigmoid(float x){
+        return tanh(x) * 0.99999;
+    }
+
+    float bend(float x, float delta, float minX, float maxX){
+        return mix(x, delta > 0.0 ? maxX : minX, sigmoid(abs(delta)));
     }
 
     void main(){
@@ -127,8 +132,12 @@ function main(){
         else {
             vec4 sourcePixel = texture(source, pixel);
             vec3 lab = rgb_to_lab(sourcePixel.rgb);
+            vec3 sourceLab = lab;
 
-            lab *= 1.0 + (texture(offsetByLuminance, vec2(lab.x, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
+            // lab *= 1.0 + (texture(offsetByLuminance, vec2(lab.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
+            // lab += 
+            vec3 amount = (texture(offsetByLuminance, vec2(lab.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
+            lab.x = bend(lab.x, amount.x, 0.0, 1.0);
 
             vec3 result = lab_to_rgb(lab);
             float checked = checker(pixel.x + pixel.y, 0.007);
@@ -139,7 +148,6 @@ function main(){
             fragColor = vec4(result, sourcePixel.a); // TODO alpha curves?
         }
     }
-
     `)
     
     const vertex = compileShader(gl.VERTEX_SHADER, `#version 300 es
@@ -230,14 +238,13 @@ function main(){
         const height = 1
         const width = curve.length
 
-        console.log(
-            new Uint8Array(curve.flatMap(y => [y * 256, 128, 128, 128])))
+        // FIXME texture(lab.x * 10.0, 0.5) should need "* 10.0"
         
         gl.bindTexture(gl.TEXTURE_2D, curveMap)
         gl.texImage2D(
             gl.TEXTURE_2D, 0, gl.RGBA, width, height, 
             0, gl.RGBA, gl.UNSIGNED_BYTE,
-            new Uint8Array(curve.flatMap(y => [y * 256, 128, 128, 128]))
+            new Uint8Array(curve.flatMap(y => [y * 255, 127, 127, 128]))
             // 0, gl.RGBA32F, gl.FLOAT,
             // new Float32Array(curve.flatMap(y => [y, 0, 0, 0]))
         )
@@ -360,7 +367,7 @@ function main(){
             gl.uniform1i(sourceTextureUniform, 0)
             gl.bindTexture(gl.TEXTURE_2D, image)
 
-            gl.uniform1f(luminanceOffsetFactorUniform, intensity.value)
+            gl.uniform1f(luminanceOffsetFactorUniform, intensity.value*intensity.value*intensity.value)
             
             gl.activeTexture(gl.TEXTURE1)
             gl.uniform1i(luminanceOffsetMapUniform, 1)
