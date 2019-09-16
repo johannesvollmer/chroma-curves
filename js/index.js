@@ -7,7 +7,8 @@ function main(){
     const path = document.getElementById("curve-path")
     const controlPoints = document.getElementById("control-points")
     const intensity = document.getElementById("intensity-slider")
-    const reset = document.getElementById("reset-curve")
+    const histogramPath = document.getElementById("histogram-path")
+    // const reset = document.getElementById("reset-curve")
 
     const gl = canvas.getContext("webgl2")
     const background = 0.1
@@ -171,16 +172,12 @@ function main(){
                 vec4 src = texture(source, pixel);
                 vec3 lch = rgb_to_lch(src.rgb);
 
-                vec3 amount = (texture(offsetByLuminance, vec2(lch.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor; // FIXME shouldnt need *16
-                vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
-                // lightness_limits = mix(vec2(0.0, 1.0), lightness_limits, keepInsideGamut);
-
-                lch.x = bend(lch.x, amount.x, lightness_limits.x, lightness_limits.y);
+                // vec3 amount = (texture(offsetByLuminance, vec2(lch.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor; // FIXME shouldnt need *16
+                // vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
+                // lch.x = bend(lch.x, amount.x, lightness_limits.x, lightness_limits.y);
                 
-                // lch.y *= offsetByLuminanceFactor;
-                // lab = vec3(lab.x, lab.yz * rotation);
-
-                // float chroma_limit = texture(chromaLimits, vec2(lch.x, wrap(lch.z))).y; // manually wrap to repeat hue circle
+                float newLightness = lch.x / (maxLightness - minLightness) - minLightness;
+                lch.x = mix(lch.x, newLightness, offsetByLuminanceFactor);
 
                 vec3 result = lch_to_rgb(lch);
                 vec3 checked = checker(pixel.x + pixel.y, 0.007) ? vec3(1.0) : vec3(0.0);
@@ -188,7 +185,7 @@ function main(){
                 result = check(result.r) || check(result.g) || check(result.g) ? 
                     mix(src.rgb, checked, 0.8) : result;
 
-                fragColor = vec4(result, src.a); // TODO alpha curves?
+                fragColor = vec4(result, src.a);
             }
         }
     `
@@ -336,6 +333,11 @@ function main(){
     let minLightness = 1.0
     let maxChroma = 0.0
 
+    const histogram = {
+        lightness: Array(256),
+        chroma: Array(256),
+        hue: Array(256),
+    }
     
     intensity.addEventListener("input", event => {
         draw()
@@ -384,8 +386,8 @@ function main(){
 
     // also, activates and deactivates loading screen
     function updateSourceImage(src){
-        loading.classList.remove("hidden")   
-        original.src = null     
+        loading.classList.remove("hidden")
+        original.src = null
 
         const sourceImage = new Image()
         sourceImage.crossOrigin = '*'
@@ -404,15 +406,32 @@ function main(){
             }, true)
 
             // compute histogram
+            minLightness = 255.0
             maxLightness = 0.0
-            minLightness = 1.0
             maxChroma = 0.0
-            for(let i = 0; i < pixels.length; i+=4){
-                const [l, c] = [pixels[i], pixels[i + 1]]
-                if (l > maxLightness) maxLightness = l
-                if (l < minLightness) minLightness = l
-                if (c > maxChroma) maxChroma = c
+            
+            histogram.lightness.fill(0.0)
+            histogram.chroma.fill(0.0)
+            histogram.hue.fill(0.0)
+            
+            const pixelCount = pixels.length / 4
+            for(let i = 0; i < pixels.length; i += 4){
+                const [l, c, h] = [pixels[i], pixels[i + 1], pixels[i + 2]]
+                histogram.lightness[Math.floor(l)] += 1.0 / pixelCount
+                histogram.chroma[Math.floor(c)] += 1.0 / pixelCount
+                histogram.hue[Math.floor(h)] += 1.0 / pixelCount
+
+                minLightness = Math.min(minLightness, l)
+                maxLightness = Math.max(maxLightness, l)
+                maxChroma = Math.max(maxChroma, c)
             }
+
+            maxLightness /= 255.0
+            minLightness /= 255.0
+            maxChroma /= 255.0
+
+            const pathString = "M 0,1 " + histogram.lightness.map((y, x) => "L " + (x / (histogram.lightness.length - 1)) + "," + (1-(y))).join(" ") + " L 1,1"
+            histogramPath.setAttributeNS(null, "d", pathString)
 
             draw()
             loading.classList.add("hidden")      
@@ -575,7 +594,7 @@ function main(){
             const overallScale = 1.1
             const canvasAspect = canvas.width / canvas.height
             const aspect = imageAspect / canvasAspect
-            const offsetX = 0// .3 // (1 / aspect - 1) * overallScale //  / imageAspect // TOOD +1?
+            const offsetX = 0 // .3 // (1 / aspect - 1) * overallScale //  / imageAspect // TOOD +1?
 
             // scale the image according to aspect ratio and fit it into the view
             const scale = aspect > 1? [overallScale, -overallScale * aspect] : [overallScale / aspect, -overallScale]
@@ -587,20 +606,14 @@ function main(){
             bindTexture(chromaLimitsUniform, chromaLimits, 1)
             bindTexture(luminanceOffsetMapUniform, curveMap, 2)
 
-            /*gl.activeTexture(gl.TEXTURE0)
-            gl.uniform1i(sourceTextureUniform, 0)
-            gl.bindTexture(gl.TEXTURE_2D, image)
-            
-            gl.activeTexture(gl.TEXTURE1)
-            gl.uniform1i(chromaLimitsUniform, 1)
-            gl.bindTexture(gl.TEXTURE_2D, chromaLimits)
-            
-            gl.activeTexture(gl.TEXTURE2)
-            gl.uniform1i(luminanceOffsetMapUniform, 2)
-            gl.bindTexture(gl.TEXTURE_2D, curveMap)*/
-
             console.log("intensity: " + (intensity.value * intensity.value * intensity.value))
             gl.uniform1f(luminanceOffsetFactorUniform, intensity.value * intensity.value * intensity.value)
+            
+            gl.uniform1f(maxLightnessUniform, maxLightness)
+            gl.uniform1f(minLightnessUniform, minLightness)
+            gl.uniform1f(maxChromaUniform, maxChroma)
+
+            console.log(` minl: ${minLightness}, maxl: ${maxLightness}`)
 
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
         }

@@ -73,6 +73,12 @@ input:checked + label {
     stroke-width: 3px;
 }
 
+#histogram-path {
+    fill: transparent;
+    stroke: #fff6;
+    stroke-width: 2px;
+}
+
 #control-points circle {
     stroke-width: 0.001;
     stroke: black;
