@@ -84,3 +84,7 @@ input:checked + label {
     stroke: black;
     fill: white;
 }
+
+#exposure-checkbox:disabled {
+    opacity: 0.3;
+}

@@ -30,7 +30,7 @@
         --><div id="image-label-content">Click here to choose a file<br>or drop it anywhere on this page</div>
       </label>
 
-      <div class="content-option" id="axes">
+      <div style="display:none" class="content-option" id="axes">
         depending on
         <div class="toggle-buttons">
           <input type="radio" name="input-axis" id="input-luminance" checked><!--
@@ -57,9 +57,17 @@
       </div>
 
       <div id="curve-settings" class="content-option">
-        <h3>Curve Details</h3>
+        <h3>View</h3>
+          Visualize out-of-gamut colors: <input id="gamut-border-checkbox" type="checkbox" checked> <br>
+
+        <br><br><h3>Color Basis</h3>
+          CIE Observer White Point: D65.<br>
+          Auto Post Exposure: <input id="exposure-checkbox" type="checkbox" checked> <br>
+
+        <br><br><h3>Curve Details</h3>
           Mode: Shift. <br><br>
-          Intensity: <input id="intensity-slider" type="range" min="-2" max="2" step="0.0001"> <br>
+          Intensity: <span id="intensity-label">0.0</span> 
+          <input id="intensity-slider" type="range" min="-2" max="2" step="0.0001" value="0"> <br>
           <input type="button" id="reset-curve" value="Reset">
       </div>
       

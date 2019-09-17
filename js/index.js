@@ -7,8 +7,11 @@ function main(){
     const path = document.getElementById("curve-path")
     const controlPoints = document.getElementById("control-points")
     const intensity = document.getElementById("intensity-slider")
+    const intensityLabel = document.getElementById("intensity-label")
+    const exposure = document.getElementById("exposure-checkbox")
+    const showGamutBorder = document.getElementById("gamut-border-checkbox")
     const histogramPath = document.getElementById("histogram-path")
-    // const reset = document.getElementById("reset-curve")
+    const reset = document.getElementById("reset-curve")
 
     const gl = canvas.getContext("webgl2")
     const background = 0.1
@@ -21,7 +24,7 @@ function main(){
     // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
     const conversionFunctions = `
         const vec3 white_point = vec3(94.811, 100.0, 107.304);
-        const vec3 lab_range = vec3(100.0, 128.0, 128.0); 
+        const vec3 lab_range = vec3(100.0 / 11.0, 128.0, 128.0); // FIXME why * 14????
 
         const float lab_e = 216.0 / 24389.0;
         const float lab_k = 24389.0 / 27.0;
@@ -65,15 +68,17 @@ function main(){
 
         // returns vec2(length, angle)
         vec2 cartesian_to_polar(vec2 cartesian){
-            return vec2(length(cartesian), atan(cartesian.y, cartesian.x) / tau);
+            return vec2(length(cartesian), wrap(atan(cartesian.y, cartesian.x) / tau));
         }
 
         vec3 rgb_to_srgb(vec3 rgb) {
-            return pow(rgb, vec3(gamma));
+            // FIXME how does this handle negative values?
+            return pow(max(rgb, vec3(0.0)), vec3(gamma));
         }
 
         vec3 srgb_to_rgb(vec3 rgb) {
-            return pow(rgb, vec3(inverseGamma));
+            // FIXME how does this handle negative values?
+            return pow(max(rgb, vec3(0.0)), vec3(inverseGamma));
         }
         
         vec3 rgb_to_xyz(vec3 rgb) {
@@ -99,11 +104,12 @@ function main(){
             float fz = fy - (lab.z / 200.0);
             float fx = lab.y / 500.0 + fy;
             float fx3 = pow3(fx);
+            float fy3 = pow3(fy);
             float fz3 = pow3(fz);
 
             return vec3(
                 fx3 > lab_e ? fx3 : ((116.0 * fx - 16.0) / lab_k),
-                lab.x > lab_ek ? pow3((lab.x + 16.0) / 116.0) : lab.x / lab_k,
+                lab.x > lab_ek ? fy3 : lab.x / lab_k,
                 fz3 > lab_e ? fz3 : (116.0 * fz - 16.0) / lab_k
             );
         }
@@ -135,12 +141,14 @@ function main(){
 
         uniform sampler2D chromaLimits;
 
-        uniform float maxLightness;
-        uniform float minLightness;
-        uniform float maxChroma;
+        uniform float exposure;
+
+        uniform bool showGamutBorder;
 
         in vec2 pixel;
         out vec4 fragColor;
+
+        const vec3 background = vec3(${background});
 
         ${conversionFunctions}
 
@@ -148,44 +156,85 @@ function main(){
             return int(t/size) % 2 == 1;
         }
 
-        bool check(float t){
+        bool out_of_range(float t){
             return t > 1.0 || t < 0.0;
         }
 
-        float sigmoid(float x){
-            return tanh(x);
+        float sigmoid_01(float x){
+            return clamp(tanh(x) * 0.5 + 0.5, 0.0, 1.0);
         }
 
-        float bend(float current, float amount, float min, float max){
+        // shift a value, ensuring it never goes out of [0,1]
+        // value y should be inside [0,1]
+        // https://www.wolframalpha.com/input/?i=invert+%28tanh%28x%29*0.5%2B0.5%29
+        float inverse_sigmoid_01(float y){
+            return atanh(2.0 * clamp(y, 0.0000000001, 0.9999999999) - 1.0);
+        }
+
+        float smooth_shift_01(float t, float shift){ 
+            return sigmoid_01(inverse_sigmoid_01(t) + shift);
+        }
+
+        /*float bend(float current, float amount, float min, float max){
             float target = amount > 0.0 ? max : min;
-            return mix(current, target, sigmoid(abs(amount)));
+            return mix(current, target, sigmoid_n1_1(abs(amount)));
+        }*/
+
+        float getMaxChroma(float lightness, float hue){
+            return texture(chromaLimits, vec2(lightness, wrap(hue))).y;
+        }
+
+        vec3 adjustLightnessForRelativeChroma(vec3 lch, float lightness){
+            float oldMaxChroma = getMaxChroma(lch.x, lch.z);
+            float newMaxChroma = getMaxChroma(lightness, lch.z);
+            return vec3(lightness, (lch.y / oldMaxChroma) * newMaxChroma, lch.z);
+            // return vec3(lightness, lch.y, lch.z); // TODO
+        }
+
+        bool rgb_out_of_range(vec3 rgb){
+            return out_of_range(rgb.r) || out_of_range(rgb.g) || out_of_range(rgb.b);
+        }
+
+        bool lch_out_of_range(vec3 lch){
+            return out_of_range(lch.x) || out_of_range(lch.y);
         }
 
         void main(){
             // pixel would be outside of the image
             if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x > 1.0 || pixel.y > 1.0){
-                fragColor = vec4(vec3(${background}), 1.0);
+                fragColor = vec4(background, 1.0);
             }
 
             // pixel is inside the image
             else {
-                vec4 src = texture(source, pixel);
-                vec3 lch = rgb_to_lch(src.rgb);
+                vec4 src = texture(source, pixel); // this is in linear rgb color space
+                vec3 lch = rgb_to_lch(exposure * src.rgb); // FIXME why multiply with that vector??? 
 
-                // vec3 amount = (texture(offsetByLuminance, vec2(lch.x * 16.0, 0.5)).xyz - 0.5) * offsetByLuminanceFactor; // FIXME shouldnt need *16
-                // vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
+                // vec3 amount = (texture(offsetByLuminance, vec2(lch.x, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
+                vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
                 // lch.x = bend(lch.x, amount.x, lightness_limits.x, lightness_limits.y);
                 
-                float newLightness = lch.x / (maxLightness - minLightness) - minLightness;
-                lch.x = mix(lch.x, newLightness, offsetByLuminanceFactor);
+                // float newLightness = mix(lch.x, 1.0, offsetByLuminanceFactor);
+                // lch = adjustLightnessForRelativeChroma(lch, newLightness);
+                
+                // float brighten = pow(2.0, offsetByLuminanceFactor * 5.0);
+                // lch.x = pow(lch.x, 1.0 / brighten);
+
+
+
+                lch.x = smooth_shift_01(lch.x, offsetByLuminanceFactor);
+                
 
                 vec3 result = lch_to_rgb(lch);
-                vec3 checked = checker(pixel.x + pixel.y, 0.007) ? vec3(1.0) : vec3(0.0);
+                // vec3 result = vec3(pow(lch.x, 1.0 / 2.2));
+                
+                if (showGamutBorder){
+                    vec3 diagonals = checker(pixel.x + pixel.y, 0.007) ? vec3(1.0) : vec3(0.0);
+                    result = rgb_out_of_range(result) || lch_out_of_range(lch) ? diagonals : result;
+                }
 
-                result = check(result.r) || check(result.g) || check(result.g) ? 
-                    mix(src.rgb, checked, 0.8) : result;
-
-                fragColor = vec4(result, src.a);
+                result = clamp(result, 0.0, 1.0);
+                fragColor = vec4(mix(background, result, src.a), 1.0);
             }
         }
     `
@@ -257,11 +306,11 @@ function main(){
     const luminanceOffsetMapUniform = gl.getUniformLocation(program, "offsetByLuminance")
     const luminanceOffsetFactorUniform = gl.getUniformLocation(program, "offsetByLuminanceFactor")
     
-    const maxLightnessUniform = gl.getUniformLocation(program, "maxLightness")
-    const minLightnessUniform = gl.getUniformLocation(program, "minLightness")
-    const maxChromaUniform = gl.getUniformLocation(program, "maxChroma")
+    const exposureUniform = gl.getUniformLocation(program, "exposure")
 
     const chromaLimitsUniform = gl.getUniformLocation(program, "chromaLimits")
+    
+    const showGamutBorderUniform = gl.getUniformLocation(program, "showGamutBorder")
 
     const vertexPositionAttribute =  0 // gl.getAttribLocation(program, "vertex")
     gl.enableVertexAttribArray(vertexPositionAttribute)
@@ -328,20 +377,28 @@ function main(){
     // when uploaded, contains the open gl texture id
     let image = null
     let imageAspect = 1
-
-    let maxLightness = 0.0
-    let minLightness = 1.0
-    let maxChroma = 0.0
+    let maxRGB = 0
 
     const histogram = {
         lightness: Array(256),
         chroma: Array(256),
         hue: Array(256),
     }
+
     
-    intensity.addEventListener("input", event => {
+    listen(reset, "click", () => {
+        intensity.value = 0.0
+        intensityLabel.innerHTML = intensity.value
         draw()
     })
+    
+    intensity.addEventListener("input", () => {
+        intensityLabel.innerHTML = intensity.value
+        draw()
+    })
+
+    exposure.addEventListener("change", draw)
+    showGamutBorder.addEventListener("change", draw)
 
     input.addEventListener("change", event => {
         updateSourceImageFromFile(event.target.files)
@@ -406,29 +463,40 @@ function main(){
             }, true)
 
             // compute histogram
-            minLightness = 255.0
-            maxLightness = 0.0
-            maxChroma = 0.0
-            
             histogram.lightness.fill(0.0)
             histogram.chroma.fill(0.0)
             histogram.hue.fill(0.0)
             
+            console.log(pixels)
             const pixelCount = pixels.length / 4
             for(let i = 0; i < pixels.length; i += 4){
                 const [l, c, h] = [pixels[i], pixels[i + 1], pixels[i + 2]]
                 histogram.lightness[Math.floor(l)] += 1.0 / pixelCount
                 histogram.chroma[Math.floor(c)] += 1.0 / pixelCount
                 histogram.hue[Math.floor(h)] += 1.0 / pixelCount
-
-                minLightness = Math.min(minLightness, l)
-                maxLightness = Math.max(maxLightness, l)
-                maxChroma = Math.max(maxChroma, c)
             }
 
-            maxLightness /= 255.0
-            minLightness /= 255.0
-            maxChroma /= 255.0
+            // downscale rgb image
+            const canvas = document.createElement("canvas")
+            const rgbResolution = Math.min(256, (sourceImage.width + sourceImage.height) / 2.0)
+
+            canvas.width = rgbResolution
+            canvas.height = rgbResolution
+            const context = canvas.getContext("2d")
+            context.drawImage(sourceImage, 0, 0, rgbResolution, rgbResolution)
+            const rgbPixels = context.getImageData(0, 0, rgbResolution, rgbResolution).data
+            
+            maxRGB = 0
+            for(let i = 0; i < rgbPixels.length; i += 4){
+                const [r, g, b] = [rgbPixels[i], rgbPixels[i + 1], rgbPixels[i + 2]]
+                maxRGB = Math.max(Math.max(Math.max(maxRGB, b), g), r)
+            }
+            
+            //exposure.disabled = (maxRGB == 255)
+            //if (maxRGB == 255) exposure.checked = false
+
+            // convert ImageData srgb to OpenGL linear
+            maxRGB = Math.pow(maxRGB / 255, 1.0 / 2.2)
 
             const pathString = "M 0,1 " + histogram.lightness.map((y, x) => "L " + (x / (histogram.lightness.length - 1)) + "," + (1-(y))).join(" ") + " L 1,1"
             histogramPath.setAttributeNS(null, "d", pathString)
@@ -572,7 +640,6 @@ function main(){
 
 
 
-
     // resize canvas and open gl if window is resized
     listen(window, "resize", () => {
         canvas.width = window.innerWidth
@@ -582,7 +649,6 @@ function main(){
     })
 
     function draw(){
-
         if (image === null){
             gl.clear(gl.COLOR_BUFFER_BIT)
         }
@@ -606,14 +672,13 @@ function main(){
             bindTexture(chromaLimitsUniform, chromaLimits, 1)
             bindTexture(luminanceOffsetMapUniform, curveMap, 2)
 
-            console.log("intensity: " + (intensity.value * intensity.value * intensity.value))
-            gl.uniform1f(luminanceOffsetFactorUniform, intensity.value * intensity.value * intensity.value)
-            
-            gl.uniform1f(maxLightnessUniform, maxLightness)
-            gl.uniform1f(minLightnessUniform, minLightness)
-            gl.uniform1f(maxChromaUniform, maxChroma)
+            gl.uniform1f(luminanceOffsetFactorUniform, intensity.value)
 
-            console.log(` minl: ${minLightness}, maxl: ${maxLightness}`)
+            gl.uniform1i(showGamutBorderUniform, showGamutBorder.checked? 1 : 0)
+
+            if (exposure.checked) 
+                gl.uniform1f(exposureUniform, 1.0 / maxRGB)
+            else gl.uniform1f(exposureUniform, 1)
 
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
         }

@@ -79,6 +79,10 @@ body.with-content #image-label:not(:hover) #image-label-content {
     margin-top: 32px;
 }
 
+#overlay input[type="range"] {
+    width: 100%;
+}
+
 #toggle-hide {
     position: absolute;
     right: 0;
