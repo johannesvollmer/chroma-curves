@@ -56,16 +56,27 @@
         </div>
       </div>
 
-      <div id="curve-settings" class="content-option">
+      <div class="content-option">
         <h3>View</h3>
           Visualize out-of-gamut colors: <input id="gamut-border-checkbox" type="checkbox" checked> <br>
+      </div>
 
-        <br><br><h3>Color Basis</h3>
-          CIE Observer White Point: D65.<br>
+      <div class="content-option">
+        <h3>Color Basis</h3>
           Auto Post Exposure: <input id="exposure-checkbox" type="checkbox" checked> <br>
+          <br>
+          Pre Dithering Bitdepth: <span id="pre-dithering-label">8</span> 
+          <input id="pre-dithering-slider" type="range" min="6" max="128" step="2" value="8"> <br>
+          <br>
+          Standard Illuminant: 
+          <input type="radio" name="illuminant" id="illuminant-d65-2" >D65 2°</input>
+          <input type="radio" name="illuminant" id="illuminant-d65-10" >D65 10°</input>
+          <br>
+      </div>
 
-        <br><br><h3>Curve Details</h3>
-          Mode: Shift. <br><br>
+      <div id="curve-settings" class="content-option">
+        <h3>Curve Details</h3>
+          Mode: Soft Shift. <br><br>
           Intensity: <span id="intensity-label">0.0</span> 
           <input id="intensity-slider" type="range" min="-2" max="2" step="0.0001" value="0"> <br>
           <input type="button" id="reset-curve" value="Reset">

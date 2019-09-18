@@ -12,6 +12,8 @@ function main(){
     const showGamutBorder = document.getElementById("gamut-border-checkbox")
     const histogramPath = document.getElementById("histogram-path")
     const reset = document.getElementById("reset-curve")
+    const preDithering = document.getElementById("pre-dithering-slider")
+    const preDitheringLabel = document.getElementById("pre-dithering-label")
 
     const gl = canvas.getContext("webgl2")
     const background = 0.1
@@ -24,7 +26,7 @@ function main(){
     // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
     const conversionFunctions = `
         const vec3 white_point = vec3(94.811, 100.0, 107.304);
-        const vec3 lab_range = vec3(100.0 / 11.0, 128.0, 128.0); // FIXME why * 14????
+        const vec3 lab_range = vec3(100.0 / 11.2, 128.0, 128.0); // FIXME why * 14????
 
         const float lab_e = 216.0 / 24389.0;
         const float lab_k = 24389.0 / 27.0;
@@ -142,6 +144,7 @@ function main(){
         uniform sampler2D chromaLimits;
 
         uniform float exposure;
+        uniform float preDithering;
 
         uniform bool showGamutBorder;
 
@@ -168,7 +171,7 @@ function main(){
         // value y should be inside [0,1]
         // https://www.wolframalpha.com/input/?i=invert+%28tanh%28x%29*0.5%2B0.5%29
         float inverse_sigmoid_01(float y){
-            return atanh(2.0 * clamp(y, 0.0000000001, 0.9999999999) - 1.0);
+            return atanh(2.0 * clamp(y, 0.0, 1.0) - 1.0);
         }
 
         float smooth_shift_01(float t, float shift){ 
@@ -179,6 +182,16 @@ function main(){
             float target = amount > 0.0 ? max : min;
             return mix(current, target, sigmoid_n1_1(abs(amount)));
         }*/
+
+        float noise (vec2 coordinate) {
+            return fract(sin(
+                dot(
+                    coordinate.xy,
+                    vec2(12.9898,78.233)
+                ))
+                * 43758.5453123
+            );
+        }
 
         float getMaxChroma(float lightness, float hue){
             return texture(chromaLimits, vec2(lightness, wrap(hue))).y;
@@ -208,6 +221,9 @@ function main(){
             // pixel is inside the image
             else {
                 vec4 src = texture(source, pixel); // this is in linear rgb color space
+                vec3 dithering = vec3(noise(pixel), noise(pixel*0.9), noise(pixel*0.8));
+                src.rgb = clamp(src.rgb + (dithering - 0.5) * preDithering, 0.0, 1.0);
+
                 vec3 lch = rgb_to_lch(exposure * src.rgb); // FIXME why multiply with that vector??? 
 
                 // vec3 amount = (texture(offsetByLuminance, vec2(lch.x, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
@@ -307,6 +323,7 @@ function main(){
     const luminanceOffsetFactorUniform = gl.getUniformLocation(program, "offsetByLuminanceFactor")
     
     const exposureUniform = gl.getUniformLocation(program, "exposure")
+    const preDitheringUniform = gl.getUniformLocation(program, "preDithering")
 
     const chromaLimitsUniform = gl.getUniformLocation(program, "chromaLimits")
     
@@ -394,6 +411,11 @@ function main(){
     
     intensity.addEventListener("input", () => {
         intensityLabel.innerHTML = intensity.value
+        draw()
+    })
+    
+    preDithering.addEventListener("input", () => {
+        preDitheringLabel.innerHTML = preDithering.value
         draw()
     })
 
@@ -674,10 +696,11 @@ function main(){
 
             gl.uniform1f(luminanceOffsetFactorUniform, intensity.value)
 
+            gl.uniform1f(preDitheringUniform, preDithering.value == 0? 0 : 1.0 / Math.pow(2, preDithering.value))
+
             gl.uniform1i(showGamutBorderUniform, showGamutBorder.checked? 1 : 0)
 
-            if (exposure.checked) 
-                gl.uniform1f(exposureUniform, 1.0 / maxRGB)
+            if (exposure.checked)  gl.uniform1f(exposureUniform, 1.0 / maxRGB)
             else gl.uniform1f(exposureUniform, 1)
 
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
