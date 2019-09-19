@@ -15,7 +15,7 @@ function main(){
     const preDithering = document.getElementById("pre-dithering-slider")
     const preDitheringLabel = document.getElementById("pre-dithering-label")
 
-    const gl = canvas.getContext("webgl2")
+    window.gl = canvas.getContext("webgl2")
     const background = 0.1
 
     if (!gl) {
@@ -23,311 +23,38 @@ function main(){
     }
 
 
-    // http://www.brucelindbloom.com/index.html?Eqn_XYZ_to_RGB.html
-    const conversionFunctions = `
-        const vec3 white_point = vec3(94.811, 100.0, 107.304);
-        const vec3 lab_range = vec3(100.0 / 11.2, 128.0, 128.0); // FIXME why * 14????
-
-        const float lab_e = 216.0 / 24389.0;
-        const float lab_k = 24389.0 / 27.0;
-        const float lab_ek = lab_e * lab_k;
-
-        const float third = 1.0 / 3.0;
-        const float tau = 6.28318530718;
-
-        const float gamma = 2.2;
-        const float inverseGamma = 1.0 / gamma;
-
-        const mat3 srgb_to_xyz_matrix = mat3(
-            0.4124564, 0.3575761, 0.1804375,
-            0.2126729, 0.7151522, 0.0721750,
-            0.0193339, 0.1191920, 0.9503041
-        );
-
-        const mat3 xyz_to_srgb_matrix = mat3(
-            3.24045420, -1.5371385, -0.4985314,
-            -0.96926600,  1.8760108,  0.0415560,
-            0.05564340, -0.2040259,  1.0572252
-        );
-
-        float pow3(float vec){
-            return vec * vec * vec;
-        }
-
-        float wrap(float x){
-            x = fract(x);
-            if (x < 0.0) 
-                x += 1.0;
-            return x;
-        }
-
-
-        // expects vec2(length, angle)
-        vec2 polar_to_cartesian(vec2 polar){
-            polar.y *= tau;
-            return polar.x * vec2(cos(polar.y), sin(polar.y));
-        }
-
-        // returns vec2(length, angle)
-        vec2 cartesian_to_polar(vec2 cartesian){
-            return vec2(length(cartesian), wrap(atan(cartesian.y, cartesian.x) / tau));
-        }
-
-        vec3 rgb_to_srgb(vec3 rgb) {
-            // FIXME how does this handle negative values?
-            return pow(max(rgb, vec3(0.0)), vec3(gamma));
-        }
-
-        vec3 srgb_to_rgb(vec3 rgb) {
-            // FIXME how does this handle negative values?
-            return pow(max(rgb, vec3(0.0)), vec3(inverseGamma));
-        }
-        
-        vec3 rgb_to_xyz(vec3 rgb) {
-            return (rgb_to_srgb(rgb) * srgb_to_xyz_matrix) / white_point; 
-        }
-
-        vec3 xyz_to_rgb(vec3 xyz) {
-            return srgb_to_rgb((xyz * white_point) * xyz_to_srgb_matrix); 
-        }
-
-        float float_to_lab(float t){
-            return t > lab_e ? pow(t, third) : (lab_k * t + 16.0) / 116.0;
-        }
-
-        vec3 xyz_to_nlab(vec3 xyz) {
-            vec3 f = vec3(float_to_lab(xyz.x), float_to_lab(xyz.y), float_to_lab(xyz.z));
-            return vec3(116.0 * f.y - 16.0, 500.0 * (f.x - f.y), 200.0 * (f.y - f.z)) / lab_range; // normalize common lab values to 0..1
-        }
-
-        vec3 nlab_to_xyz(vec3 lab) {
-            lab *= lab_range;
-            float fy = (lab.x + 16.0) / 116.0;
-            float fz = fy - (lab.z / 200.0);
-            float fx = lab.y / 500.0 + fy;
-            float fx3 = pow3(fx);
-            float fy3 = pow3(fy);
-            float fz3 = pow3(fz);
-
-            return vec3(
-                fx3 > lab_e ? fx3 : ((116.0 * fx - 16.0) / lab_k),
-                lab.x > lab_ek ? fy3 : lab.x / lab_k,
-                fz3 > lab_e ? fz3 : (116.0 * fz - 16.0) / lab_k
-            );
-        }
-
-        vec3 rgb_to_lab(vec3 rgb) {
-            return xyz_to_nlab(rgb_to_xyz(rgb));
-        }
-
-        vec3 lab_to_rgb(vec3 lab) {
-            return xyz_to_rgb(nlab_to_xyz(lab));
-        }
-
-        vec3 rgb_to_lch(vec3 rgb) {
-            vec3 lab = rgb_to_lab(rgb);
-            return vec3(lab.x, cartesian_to_polar(lab.yz));
-        }
-
-        vec3 lch_to_rgb(vec3 lch) {
-            return lab_to_rgb(vec3(lch.x, polar_to_cartesian(lch.yz)));
-        }
-    `
-
-    const modifyLABFragment = `#version 300 es
-        precision highp float;
-        uniform sampler2D source; // stored as LAB colors
-        
-        uniform sampler2D offsetByLuminance; // unset these if not modifying?
-        uniform float offsetByLuminanceFactor;
-
-        uniform sampler2D chromaLimits;
-
-        uniform float exposure;
-        uniform float preDithering;
-
-        uniform bool showGamutBorder;
-
-        in vec2 pixel;
-        out vec4 fragColor;
-
-        const vec3 background = vec3(${background});
-
-        ${conversionFunctions}
-
-        bool checker(float t, float size){
-            return int(t/size) % 2 == 1;
-        }
-
-        bool out_of_range(float t){
-            return t > 1.0 || t < 0.0;
-        }
-
-        float sigmoid_01(float x){
-            return clamp(tanh(x) * 0.5 + 0.5, 0.0, 1.0);
-        }
-
-        // shift a value, ensuring it never goes out of [0,1]
-        // value y should be inside [0,1]
-        // https://www.wolframalpha.com/input/?i=invert+%28tanh%28x%29*0.5%2B0.5%29
-        float inverse_sigmoid_01(float y){
-            return atanh(2.0 * clamp(y, 0.0, 1.0) - 1.0);
-        }
-
-        float smooth_shift_01(float t, float shift){ 
-            return sigmoid_01(inverse_sigmoid_01(t) + shift);
-        }
-
-        /*float bend(float current, float amount, float min, float max){
-            float target = amount > 0.0 ? max : min;
-            return mix(current, target, sigmoid_n1_1(abs(amount)));
-        }*/
-
-        float noise (vec2 coordinate) {
-            return fract(sin(
-                dot(
-                    coordinate.xy,
-                    vec2(12.9898,78.233)
-                ))
-                * 43758.5453123
-            );
-        }
-
-        float getMaxChroma(float lightness, float hue){
-            return texture(chromaLimits, vec2(lightness, wrap(hue))).y;
-        }
-
-        vec3 adjustLightnessForRelativeChroma(vec3 lch, float lightness){
-            float oldMaxChroma = getMaxChroma(lch.x, lch.z);
-            float newMaxChroma = getMaxChroma(lightness, lch.z);
-            return vec3(lightness, (lch.y / oldMaxChroma) * newMaxChroma, lch.z);
-            // return vec3(lightness, lch.y, lch.z); // TODO
-        }
-
-        bool rgb_out_of_range(vec3 rgb){
-            return out_of_range(rgb.r) || out_of_range(rgb.g) || out_of_range(rgb.b);
-        }
-
-        bool lch_out_of_range(vec3 lch){
-            return out_of_range(lch.x) || out_of_range(lch.y);
-        }
-
-        void main(){
-            // pixel would be outside of the image
-            if (pixel.x < 0.0 || pixel.y < 0.0 || pixel.x > 1.0 || pixel.y > 1.0){
-                fragColor = vec4(background, 1.0);
-            }
-
-            // pixel is inside the image
-            else {
-                vec4 src = texture(source, pixel); // this is in linear rgb color space
-                vec3 dithering = vec3(noise(pixel), noise(pixel*0.9), noise(pixel*0.8));
-                src.rgb = clamp(src.rgb + (dithering - 0.5) * preDithering, 0.0, 1.0);
-
-                vec3 lch = rgb_to_lch(exposure * src.rgb); // FIXME why multiply with that vector??? 
-
-                // vec3 amount = (texture(offsetByLuminance, vec2(lch.x, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
-                vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
-                // lch.x = bend(lch.x, amount.x, lightness_limits.x, lightness_limits.y);
-                
-                // float newLightness = mix(lch.x, 1.0, offsetByLuminanceFactor);
-                // lch = adjustLightnessForRelativeChroma(lch, newLightness);
-                
-                // float brighten = pow(2.0, offsetByLuminanceFactor * 5.0);
-                // lch.x = pow(lch.x, 1.0 / brighten);
-
-
-
-                lch.x = smooth_shift_01(lch.x, offsetByLuminanceFactor);
-                
-
-                vec3 result = lch_to_rgb(lch);
-                // vec3 result = vec3(pow(lch.x, 1.0 / 2.2));
-                
-                if (showGamutBorder){
-                    vec3 diagonals = checker(pixel.x + pixel.y, 0.007) ? vec3(1.0) : vec3(0.0);
-                    result = rgb_out_of_range(result) || lch_out_of_range(lch) ? diagonals : result;
-                }
-
-                result = clamp(result, 0.0, 1.0);
-                fragColor = vec4(mix(background, result, src.a), 1.0);
-            }
-        }
-    `
-
-    const vertex = `#version 300 es
-        precision highp float;
-        layout (location=0) in vec2 vertex;
-        uniform vec2 viewScale; // also accounts for aspect ratio of image and canvas 
-        uniform vec2 viewOffset;
-        out vec2 pixel;
-        
-        void main() {
-            pixel = (vertex * viewScale + viewOffset) * 0.5 + 0.5;
-            gl_Position = vec4(vertex, 0.0, 1.0);
-        }
-    `
-
     
 
     const lchImageResolution = 256
     const lchImage = createTexture(gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE)
     updateArrayTexture(lchImage, lchImageResolution, lchImageResolution, gl.RGBA, null)
 
-    const tolchImage = linkProgram(
-        `#version 300 es
-            precision highp float;
 
-            layout (location=0) in vec2 vertex;
-            out vec2 pixel;
-            
-            void main() {
-                pixel = vertex * 0.5 + 0.5;
-                gl_Position = vec4(vertex, 0.0, 1.0);
-            }
-        `,
-
-        `#version 300 es
-            precision highp float;
-
-            in vec2 pixel;
-            uniform sampler2D source;
-            out vec4 fragColor;
-
-            ${conversionFunctions}
-
-            void main(){
-                vec4 src = texture(source, pixel);
-                fragColor = vec4(rgb_to_lch(src.rgb), src.a);
-            }
-        `
-    )
-
-    const toLCHImageUniform = gl.getUniformLocation(tolchImage, "source")
-
-
-
+    const convertRGBTextureToLCH = shaders.convertRGBTexturetoLCH()
+    const computeGamutLimits = shaders.computeGamutLimits()
+    
     const framebuffer = gl.createFramebuffer()
 
     gl.clearColor(background, background, background, 1.0)
 
-    const program = linkProgram(vertex, modifyLABFragment)
-    gl.useProgram(program)
+    const program = shaders.render({ background }) // linkProgram(vertex, modifyLABFragment)
 
-    const viewScaleUniform = gl.getUniformLocation(program, "viewScale")
-    const viewOffsetUniform = gl.getUniformLocation(program, "viewOffset")
+    // const viewScaleUniform = gl.getUniformLocation(program, "viewScale")
+    // const viewOffsetUniform = gl.getUniformLocation(program, "viewOffset")
 
-    const sourceTextureUniform = gl.getUniformLocation(program, "source")
+    // const sourceTextureUniform = gl.getUniformLocation(program, "source")
 
-    const luminanceOffsetMapUniform = gl.getUniformLocation(program, "offsetByLuminance")
-    const luminanceOffsetFactorUniform = gl.getUniformLocation(program, "offsetByLuminanceFactor")
+    // const luminanceOffsetMapUniform = gl.getUniformLocation(program, "offsetByLuminance")
+    // const luminanceOffsetFactorUniform = gl.getUniformLocation(program, "offsetByLuminanceFactor")
     
-    const exposureUniform = gl.getUniformLocation(program, "exposure")
-    const preDitheringUniform = gl.getUniformLocation(program, "preDithering")
+    // const exposureUniform = gl.getUniformLocation(program, "exposure")
+    // const preDitheringUniform = gl.getUniformLocation(program, "preDithering")
 
-    const chromaLimitsUniform = gl.getUniformLocation(program, "chromaLimits")
+    // const chromaLimitsUniform = gl.getUniformLocation(program, "chromaLimits")
     
-    const showGamutBorderUniform = gl.getUniformLocation(program, "showGamutBorder")
+    // const showGamutBorderUniform = gl.getUniformLocation(program, "showGamutBorder")
+    
+    // gl.useProgram(program) // TODO remove?
 
     const vertexPositionAttribute =  0 // gl.getAttribLocation(program, "vertex")
     gl.enableVertexAttribArray(vertexPositionAttribute)
@@ -400,10 +127,14 @@ function main(){
         lightness: Array(256),
         chroma: Array(256),
         hue: Array(256),
+        maxLightnessCount: 0.0,
+        maxChromaCount: 0.0,
+        maxHueCount: 0.0
     }
 
     
-    listen(reset, "click", () => {
+    intensityLabel.innerHTML = intensity.value
+    reset.addEventListener("click", () => {
         intensity.value = 0.0
         intensityLabel.innerHTML = intensity.value
         draw()
@@ -414,6 +145,7 @@ function main(){
         draw()
     })
     
+    preDitheringLabel.innerHTML = preDithering.value
     preDithering.addEventListener("input", () => {
         preDitheringLabel.innerHTML = preDithering.value
         draw()
@@ -480,8 +212,12 @@ function main(){
             updateImageTexture(image, sourceImage, true)
 
             const pixels = renderToTexture(lchImage, lchImageResolution, lchImageResolution, () => {
-                gl.useProgram(tolchImage)
-                bindTexture(toLCHImageUniform, image, 0)
+                convertRGBTextureToLCH.bind({
+                    source: image
+                }) 
+
+                // gl.useProgram(tolchImage)
+                // bindTexture(toLCHImageUniform, image, 0)
             }, true)
 
             // compute histogram
@@ -489,7 +225,6 @@ function main(){
             histogram.chroma.fill(0.0)
             histogram.hue.fill(0.0)
             
-            console.log(pixels)
             const pixelCount = pixels.length / 4
             for(let i = 0; i < pixels.length; i += 4){
                 const [l, c, h] = [pixels[i], pixels[i + 1], pixels[i + 2]]
@@ -497,6 +232,10 @@ function main(){
                 histogram.chroma[Math.floor(c)] += 1.0 / pixelCount
                 histogram.hue[Math.floor(h)] += 1.0 / pixelCount
             }
+
+            histogram.maxLightnessCount = Math.max(...histogram.lightness)
+            histogram.maxChromaCount = Math.max(...histogram.chroma)
+            histogram.maxHueCount = Math.max(...histogram.hue)
 
             // downscale rgb image
             const canvas = document.createElement("canvas")
@@ -520,7 +259,7 @@ function main(){
             // convert ImageData srgb to OpenGL linear
             maxRGB = Math.pow(maxRGB / 255, 1.0 / 2.2)
 
-            const pathString = "M 0,1 " + histogram.lightness.map((y, x) => "L " + (x / (histogram.lightness.length - 1)) + "," + (1-(y))).join(" ") + " L 1,1"
+            const pathString = "M 0,1 " + histogram.lightness.map((y, x) => "L " + (x / (histogram.lightness.length - 1)) + "," + (1-(0.9 * y / histogram.maxLightnessCount))).join(" ") + " L 1,1"
             histogramPath.setAttributeNS(null, "d", pathString)
 
             draw()
@@ -537,102 +276,10 @@ function main(){
     const chromaLimits /* depending on vec2(Lighntess, Hue) */ = createTexture(gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE) // repeat hue, clamp lightness
     updateArrayTexture(chromaLimits, limitsResolution, limitsResolution, gl.RGBA, null)
 
-    const computeChromaLimits = linkProgram(
-        `#version 300 es
-            precision highp float;
-
-            layout (location=0) in vec2 vertex;
-            out vec2 pixel;
-            
-            void main() {
-                pixel = vertex * 0.5 + 0.5;
-                gl_Position = vec4(vertex, 0.0, 1.0);
-            }
-        `,
-
-        `#version 300 es
-            precision highp float;
-
-            in vec2 pixel;
-
-            out vec4 fragColor;
-
-            ${conversionFunctions}
-
-            bool valid(float rgb){
-                return rgb <= 1.0 && rgb >= 0.0;
-            }
-
-            bool rgb_valid(vec3 rgb){
-                return valid(rgb.r) && valid(rgb.g) && valid(rgb.b);
-            }
-
-            bool lch_valid(vec3 lch){
-                return rgb_valid(lch_to_rgb(lch));
-            }
-
-            // binary-search limits of RGB-gamut inside LCH space
-            // chroma depending on vec2(lightness, hue)
-            float max_chroma(){
-                // start with approximate chroma-limit 0.5
-                vec3 lch = vec3(pixel.x, 0.5, pixel.y); 
-                float step = 0.25;
-
-                for(int i = 0; i < 12; i++){
-                    lch.y += lch_valid(lch)? step : -step;
-                    step *= 0.5;
-                }
-
-                // possibly step back, to always be inside the gamut
-                lch.y -= lch_valid(lch)? 0.0 : 1.0 / 255.0; 
-                lch.y -= lch_valid(lch)? 0.0 : 1.0 / 255.0; 
-                return lch.y;
-            }
-
-            // TODO: use the generated chromalimit texture to step along the border of the gamut?
-            // linearly find min and max lightness of the gamut 
-            // lightness depending on vec2(chroma, hue)
-            vec2 min_max_lightness(){
-                const int iterations = 256;
-                const float step = 1.0 / (float(iterations) - 1.0);
-
-                vec3 lch = vec3(0.0, pixel.x, pixel.y);
-                float min = 0.2;
-                float max = 0.8;
-
-                bool previously_inside = false;
-                float previous = 0.0;
-
-                for(int i = 0; i < iterations; i++){
-                    bool inside = lch_valid(lch);
-
-                    if (inside && !previously_inside){
-                        min = lch.x;
-                    }
-
-                    if (!inside && previously_inside){
-                        max = previous;
-                    }
-
-                    previously_inside = inside;
-                    previous = lch.x;
-                    lch.x += step;
-                }
-
-                // possibly step back two more times, to always be inside the gamut
-                return vec2(min, max);
-            }
-
-            void main(){
-                vec2 lightness_limits = min_max_lightness();
-                fragColor = vec4(lightness_limits.x, max_chroma(), 0.0, lightness_limits.y);
-            }
-        `
-    )
-
 
     renderToTexture(chromaLimits, limitsResolution, limitsResolution, () => {
-        gl.useProgram(computeChromaLimits)
+        // gl.useProgram(computeChromaLimits)
+        computeGamutLimits.bind({})
     })
 
 
@@ -677,7 +324,8 @@ function main(){
         else {
             // no need to clear, as we always redraw the whole screen
             gl.bindBuffer(gl.ARRAY_BUFFER, vertices)
-            gl.useProgram(program)
+            
+            // gl.useProgram(program)
     
             const overallScale = 1.1
             const canvasAspect = canvas.width / canvas.height
@@ -686,7 +334,26 @@ function main(){
 
             // scale the image according to aspect ratio and fit it into the view
             const scale = aspect > 1? [overallScale, -overallScale * aspect] : [overallScale / aspect, -overallScale]
-            gl.uniform2fv(viewScaleUniform, scale)
+
+            
+            program.bind({
+                viewScale: scale,
+                viewOffset: [-offsetX, 0],
+
+                source: image,
+                chromaLimits: chromaLimits,
+
+                offsetByLuminance: curveMap,
+                offsetByLuminanceFactor: intensity.value,
+
+                preDithering: preDithering.value == 0? 0 : 1.0 / Math.pow(2, preDithering.value),
+                showGamutBorder: showGamutBorder.checked? 1 : 0,
+
+                exposure: exposure.checked? 1.0 / maxRGB : 1 
+            })
+
+
+            /*gl.uniform2fv(viewScaleUniform, scale)
 
             gl.uniform2f(viewOffsetUniform, -offsetX, 0)
 
@@ -701,7 +368,7 @@ function main(){
             gl.uniform1i(showGamutBorderUniform, showGamutBorder.checked? 1 : 0)
 
             if (exposure.checked)  gl.uniform1f(exposureUniform, 1.0 / maxRGB)
-            else gl.uniform1f(exposureUniform, 1)
+            else gl.uniform1f(exposureUniform, 1)*/
 
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
         }
@@ -721,13 +388,6 @@ function main(){
         return id
     }
 
-    function bindTexture(uniform, texture, index){
-        gl.activeTexture(gl.TEXTURE0 + index)
-        gl.uniform1i(uniform, index)
-
-        gl.bindTexture(gl.TEXTURE_2D, texture)
-    }
-
     function updateImageTexture(id, image, mipmap){
         gl.bindTexture(gl.TEXTURE_2D, id)
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
@@ -739,37 +399,6 @@ function main(){
         gl.texImage2D(gl.TEXTURE_2D, 0, channels, width, height, 0, channels, gl.UNSIGNED_BYTE, data)
     }
 
-    function linkProgram(vertex, fragment){
-        const vertexShader = compileShader(gl.VERTEX_SHADER, vertex)
-        const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragment)
-
-        const program = gl.createProgram()
-        
-        gl.attachShader(program, vertexShader)
-        gl.attachShader(program, fragmentShader)
-
-        gl.linkProgram(program)
-
-        gl.deleteShader(vertexShader)
-        gl.deleteShader(fragmentShader)
-
-        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) 
-            throw "Program Link Error: " + gl.getProgramInfoLog(program)
-        
-        return program
-    }
-
-    function compileShader(type, source){
-        const shader = gl.createShader(type)
-        gl.shaderSource(shader, source)
-        gl.compileShader(shader)
-
-        if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) 
-            throw "Shader Compile Error: " + gl.getShaderInfoLog(shader) 
-                + "\n\nin\n\n" + source.split("\n").map((el, idx) => idx + ": " + el).join("\n")
-        
-        return shader
-    }
 
     loading.classList.add("hidden") 
 }

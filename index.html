@@ -10,6 +10,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
     <meta name="theme-color" content="rgb(255, 53, 154)"/>
 
+    <script type="text/javascript" src="js/gl.js"></script>
+    <script type="text/javascript" src="js/shaders.js"></script>
+    <script type="text/javascript" src="js/view.js"></script>
     <script type="text/javascript" src="js/index.js"></script>
   </head>
 
@@ -65,12 +68,19 @@
         <h3>Color Basis</h3>
           Auto Post Exposure: <input id="exposure-checkbox" type="checkbox" checked> <br>
           <br>
-          Pre Dithering Bitdepth: <span id="pre-dithering-label">8</span> 
-          <input id="pre-dithering-slider" type="range" min="6" max="128" step="2" value="8"> <br>
+          Pre Dithering Source Image Bitdepth: <span id="pre-dithering-label">8</span> 
+          <input id="pre-dithering-slider" type="range" min="2" max="256" step="0.1" value="8"> <br>
           <br>
-          Standard Illuminant: 
-          <input type="radio" name="illuminant" id="illuminant-d65-2" >D65 2°</input>
-          <input type="radio" name="illuminant" id="illuminant-d65-10" >D65 10°</input>
+          Device Whitepoint:  <!-- TODO: let user customize rgb-xyz matrix -->
+          <input type="radio" name="illuminant" id="illuminant-d65-2" checked>Standard Illuminant CIE D50</input>
+          <input type="radio" name="illuminant" id="illuminant-d65-2" >Standard Illuminant CIE D65 2°</input>
+          <input type="radio" name="illuminant" id="illuminant-d65-10" >Standard Illuminant CIE D65 10°</input>
+          <input type="radio" name="illuminant" id="illuminant-d65-10" >ICC</input>
+          <input type="radio" name="illuminant" id="illuminant-custom-values" >
+            X <input id="custom-illuminant-x" type="number" value="1" step="0.01">,
+            Y <input id="custom-illuminant-y" type="number" value="1" step="0.01">,
+            Z <input id="custom-illuminant-z" type="number" value="1" step="0.01">.
+          </input>
           <br>
       </div>
 
