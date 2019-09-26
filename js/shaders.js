@@ -51,12 +51,16 @@ const math = `
         return vec2(length(cartesian), wrap(atan(cartesian.y, cartesian.x) / tau));
     }
 
+    float safe_pow(float x, float exp){
+        return pow(abs(x), exp) * sign(x); // mirror across (0,0)
+    }
+
     vec3 rgb_to_srgb(vec3 rgb) {
-        return pow(max(rgb, vec3(0.0)), vec3(gamma));
+        return vec3(safe_pow(rgb.r, gamma), safe_pow(rgb.g, gamma), safe_pow(rgb.b, gamma));
     }
 
     vec3 srgb_to_rgb(vec3 rgb) {
-        return pow(max(rgb, vec3(0.0)), vec3(inverseGamma));
+        return vec3(safe_pow(rgb.r, inverseGamma), safe_pow(rgb.g, inverseGamma), safe_pow(rgb.b, inverseGamma));
     }
     
     vec3 rgb_to_xyz(vec3 rgb) {
@@ -169,37 +173,11 @@ window.shaders.render = ({ background }) => createProgram({
         }
 
         bool out_of_range(float t){
-            return isnan(t) || t > 1.0001 || t < 0.0001;
+            return isnan(t) || t > 1.000001 || t < -0.000001;
         }
-
-        float sigmoid_01(float x){
-            return clamp(tanh(x) * 0.5 + 0.5, 0.0, 1.0);
-        }
-
-        // shift a value, ensuring it never goes out of [0,1]
-        // value y should be inside [0,1]
-        // https://www.wolframalpha.com/input/?i=invert+%28tanh%28x%29*0.5%2B0.5%29
-        float inverse_sigmoid_01(float y){
-            return atanh(2.0 * clamp(y, 0.0, 1.0) - 1.0);
-        }
-
-        float smooth_shift_01(float t, float shift){ 
-            return sigmoid_01(inverse_sigmoid_01(t) + shift);
-        }
-
-        /*float bend(float current, float amount, float min, float max){
-            float target = amount > 0.0 ? max : min;
-            return mix(current, target, sigmoid_n1_1(abs(amount)));
-        }*/
 
         float noise1(vec2 coordinate){
-            return fract(sin(
-                dot(
-                    coordinate.xy,
-                    vec2(12.9898,78.233)
-                ))
-                * 43758.5453123
-            );
+            return fract(sin(dot(coordinate.xy, vec2(12.9898,78.233))) * 43758.5453123);
         }
         
         vec3 noise3(vec2 coordinate){
@@ -234,12 +212,19 @@ window.shaders.render = ({ background }) => createProgram({
             // pixel is inside the image
             else {
                 vec4 src = texture(source, pixel); // this is in linear rgb color space
-                src.rgb = clamp(src.rgb + (noise3(pixel) - 0.5) * preDithering, 0.0, 1.0); // dither before any adjustments at all 
 
-                vec3 lch = rgb_to_lch(exposure * src.rgb); // FIXME why multiply with that vector??? 
+                // dither before any adjustments at all 
+                src.rgb = src.rgb + (noise3(pixel) - 0.5) * preDithering; 
+                src.rgb *= exposure; // correct exposure
+                src.rgb = clamp(src.rgb, 0.0, 1.0); // clamp after noise application
 
-                // vec3 amount = (texture(offsetByLuminance, vec2(lch.x, 0.5)).xyz - 0.5) * offsetByLuminanceFactor;
-                vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
+                vec3 lch = rgb_to_lch(src.rgb);
+
+                // vec2 lightness_limits = texture(chromaLimits, vec2(lch.y, wrap(lch.z))).ra; // manually wrap to repeat hue circle
+                
+                vec3 amount = (texture(offsetByLuminance, vec2(lch.x, 0.5)).xyz - 0.5);
+                lch.x += amount.x * offsetByLuminanceFactor;
+                
                 // lch.x = bend(lch.x, amount.x, lightness_limits.x, lightness_limits.y);
                 
                 // float newLightness = mix(lch.x, 1.0, offsetByLuminanceFactor);
@@ -249,23 +234,22 @@ window.shaders.render = ({ background }) => createProgram({
                 // lch.x = pow(lch.x, 1.0 / brighten);
 
 
-                float normalized = (lch.x - lightness_limits.x) / (lightness_limits.y - lightness_limits.x);
-                float adjusted = pow(max(0.0, normalized), pow(2.0, -offsetByLuminanceFactor * 5.0));
-                float denormalized = adjusted * (lightness_limits.y - lightness_limits.x) + lightness_limits.x;
-                lch = adjustLightnessForRelativeChroma(lch, denormalized);
+                // float normalized = (lch.x - lightness_limits.x) / (lightness_limits.y - lightness_limits.x);
+                // float adjusted = pow(max(0.0, normalized), pow(2.0, -offsetByLuminanceFactor * 5.0));
+                // float denormalized = adjusted * (lightness_limits.y - lightness_limits.x) + lightness_limits.x;
+                
+                // lch = adjustLightnessForRelativeChroma(lch, denormalized);
 
-                //lch.x =  smooth_shift_01(lch.x, offsetByLuminanceFactor);
+                // lch.x =  smooth_shift_01(lch.x, offsetByLuminanceFactor);
                 
 
                 vec3 result = lch_to_rgb(lch);
-                // vec3 result = vec3(pow(lch.x, 1.0 / 2.2));
                 
                 if (showGamutBorder){
                     vec3 diagonals = checker(pixel.x + pixel.y, 0.007) ? vec3(1.0) : vec3(0.0);
                     result = rgb_out_of_range(result) || lch_out_of_range(lch) ? diagonals : result;
                 }
 
-                result = clamp(result, 0.0, 1.0);
                 fragColor = vec4(mix(background, result, src.a), 1.0);
             }
         }
@@ -402,76 +386,3 @@ window.shaders.convertRGBTexturetoLCH = () => createProgram({
     },
 })
 
-
-function createProgram({ vertex, fragment, uniforms }){
-    const id = linkProgram(vertex, fragment)
-
-    const bindUniform = {}
-    let textureSlot = 0
-
-    for (let uniform in uniforms){
-        const location = gl.getUniformLocation(id, uniform)
-        const update = uniforms[uniform]
-
-        if (update === window.gl.bindTexture){
-            const slot = textureSlot++
-            const location = gl.getUniformLocation(id, uniform)
-            bindUniform[uniform] = value => bindTexture(location, value, slot) 
-        }
-
-        else bindUniform[uniform] = value => update.call(gl, location, value)
-    }
-        
-    return {
-        bind: uniformValues => {
-            gl.useProgram(id)
-
-            for (uniform in uniformValues) {
-                if (!bindUniform[uniform]) 
-                    throw "Uniform " + uniform + " does not exist"
-
-                const update = bindUniform[uniform]
-                update.call(gl, uniformValues[uniform])
-            }
-        },
-    }
-}
-
-function bindTexture(uniform, texture, index){
-    gl.activeTexture(gl.TEXTURE0 + index)
-    gl.uniform1i(uniform, index)
-
-    gl.bindTexture(gl.TEXTURE_2D, texture)
-}
-
-function linkProgram(vertex, fragment){
-    const vertexShader = compileShader(gl.VERTEX_SHADER, vertex)
-    const fragmentShader = compileShader(gl.FRAGMENT_SHADER, fragment)
-
-    const program = gl.createProgram()
-    
-    gl.attachShader(program, vertexShader)
-    gl.attachShader(program, fragmentShader)
-
-    gl.linkProgram(program)
-
-    gl.deleteShader(vertexShader)
-    gl.deleteShader(fragmentShader)
-
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS)) 
-        throw "Program Link Error: " + gl.getProgramInfoLog(program)
-    
-    return program
-}
-
-function compileShader(type, source){
-    const shader = gl.createShader(type)
-    gl.shaderSource(shader, source)
-    gl.compileShader(shader)
-
-    if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) 
-        throw "Shader Compile Error: " + gl.getShaderInfoLog(shader) 
-            + "\n\nin\n\n" + source.split("\n").map((el, idx) => idx + ": " + el).join("\n")
-    
-    return shader
-}

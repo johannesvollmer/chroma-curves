@@ -1,19 +1,25 @@
 function main(){
-    const input = document.getElementById("image-input") 
-    const label = document.getElementById("image-label") 
-    const canvas = document.getElementById("gl")
-    const loading = document.getElementById("loading")
-    const original = document.getElementById("original")
-    const path = document.getElementById("curve-path")
-    const controlPoints = document.getElementById("control-points")
-    const intensity = document.getElementById("intensity-slider")
-    const intensityLabel = document.getElementById("intensity-label")
-    const exposure = document.getElementById("exposure-checkbox")
-    const showGamutBorder = document.getElementById("gamut-border-checkbox")
-    const histogramPath = document.getElementById("histogram-path")
-    const reset = document.getElementById("reset-curve")
-    const preDithering = document.getElementById("pre-dithering-slider")
-    const preDitheringLabel = document.getElementById("pre-dithering-label")
+    const ids = {
+        input: "image-input",
+        label: "image-label",
+        canvas: "gl",
+        loading: "loading",
+        original: "original",
+        path: "curve-path",
+        controlPoints: "control-points",
+        intensity: "intensity-slider",
+        intensityLabel: "intensity-label",
+        exposure: "exposure-checkbox",
+        showGamutBorder: "gamut-border-checkbox",
+        histogramPath: "histogram-path",
+        reset: "reset-curve",
+        preDithering: "pre-dithering-slider",
+        preDitheringLabel: "pre-dithering-label"
+    }
+
+    for(let name in ids)
+        this[name] = document.getElementById(ids[name]) // aww yisss
+
 
     window.gl = canvas.getContext("webgl2")
     const background = 0.1
@@ -22,8 +28,6 @@ function main(){
         throw "WebGL2 not found"
     }
 
-
-    
 
     const lchImageResolution = 256
     const lchImage = createTexture(gl.LINEAR, gl.LINEAR, gl.CLAMP_TO_EDGE, gl.CLAMP_TO_EDGE)
@@ -37,26 +41,9 @@ function main(){
 
     gl.clearColor(background, background, background, 1.0)
 
-    const program = shaders.render({ background }) // linkProgram(vertex, modifyLABFragment)
+    const program = shaders.render({ background }) 
 
-    // const viewScaleUniform = gl.getUniformLocation(program, "viewScale")
-    // const viewOffsetUniform = gl.getUniformLocation(program, "viewOffset")
-
-    // const sourceTextureUniform = gl.getUniformLocation(program, "source")
-
-    // const luminanceOffsetMapUniform = gl.getUniformLocation(program, "offsetByLuminance")
-    // const luminanceOffsetFactorUniform = gl.getUniformLocation(program, "offsetByLuminanceFactor")
-    
-    // const exposureUniform = gl.getUniformLocation(program, "exposure")
-    // const preDitheringUniform = gl.getUniformLocation(program, "preDithering")
-
-    // const chromaLimitsUniform = gl.getUniformLocation(program, "chromaLimits")
-    
-    // const showGamutBorderUniform = gl.getUniformLocation(program, "showGamutBorder")
-    
-    // gl.useProgram(program) // TODO remove?
-
-    const vertexPositionAttribute =  0 // gl.getAttribLocation(program, "vertex")
+    const vertexPositionAttribute =  0 // fixed layout instead of gl.getAttribLocation(program, "vertex")
     gl.enableVertexAttribArray(vertexPositionAttribute)
 
     // create a full-screen quad made of 2 triangles
@@ -68,9 +55,10 @@ function main(){
 
     const xmlns = "http://www.w3.org/2000/svg"
 
-    const curve = Array(256)
+    const curve = Array(Math.floor(256/6))
 
-    const points = [ { x:1, y:-1, size: 0.003 } ] // [ {x:0, y:-0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:-1.0, size: 0.05} ]
+    const points = [ { x: 0.8, y: -0.8, size: 0.003 } ] // [ {x:0, y:-0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:-1.0, size: 0.05} ]
+    let currentControlPointIndex = null
     updateSVGFromPoints()
 
 
@@ -82,14 +70,21 @@ function main(){
         controlPoints.innerHTML = ""
         
         points
-            .map(point => {
+            .map((point, index) => {
+                console.log(index)
                 const circle = document.createElementNS(xmlns, "circle")
                 circle.setAttributeNS(null, "cx", point.x)
                 circle.setAttributeNS(null, "cy", 1 - (point.y * 0.5 + 0.5))
                 circle.setAttributeNS(null, "r", "0.01")
+                circle.addEventListener("mousedown", event => {
+                    currentControlPointIndex = index
+                })
                 return circle
             })
             .forEach(controlPoints.appendChild.bind(controlPoints))
+
+
+        console.log(controlPoints)    
 
         for(let index = 0; index < curve.length; index++){
             const x = index / (curve.length - 1)
@@ -131,6 +126,24 @@ function main(){
         maxChromaCount: 0.0,
         maxHueCount: 0.0
     }
+
+
+    
+    document.addEventListener("mouseup", event => {
+        currentControlPointIndex = null
+    })
+    document.addEventListener("mousemove", event => {
+        if (currentControlPointIndex !== null){
+            const lolX = 6
+            const lolY = 2
+            points[currentControlPointIndex].x += lolX * event.movementX / window.innerWidth
+            points[currentControlPointIndex].y -= lolY * event.movementY / window.innerHeight
+            updateSVGFromPoints()
+            updateCurveData()
+            draw()
+        }
+    })
+
 
     
     intensityLabel.innerHTML = intensity.value
@@ -215,9 +228,6 @@ function main(){
                 convertRGBTextureToLCH.bind({
                     source: image
                 }) 
-
-                // gl.useProgram(tolchImage)
-                // bindTexture(toLCHImageUniform, image, 0)
             }, true)
 
             // compute histogram
@@ -304,11 +314,6 @@ function main(){
         return result
     }
     
-
-
-
-
-
     // resize canvas and open gl if window is resized
     listen(window, "resize", () => {
         canvas.width = window.innerWidth
@@ -352,53 +357,9 @@ function main(){
                 exposure: exposure.checked? 1.0 / maxRGB : 1 
             })
 
-
-            /*gl.uniform2fv(viewScaleUniform, scale)
-
-            gl.uniform2f(viewOffsetUniform, -offsetX, 0)
-
-            bindTexture(sourceTextureUniform, image, 0)
-            bindTexture(chromaLimitsUniform, chromaLimits, 1)
-            bindTexture(luminanceOffsetMapUniform, curveMap, 2)
-
-            gl.uniform1f(luminanceOffsetFactorUniform, intensity.value)
-
-            gl.uniform1f(preDitheringUniform, preDithering.value == 0? 0 : 1.0 / Math.pow(2, preDithering.value))
-
-            gl.uniform1i(showGamutBorderUniform, showGamutBorder.checked? 1 : 0)
-
-            if (exposure.checked)  gl.uniform1f(exposureUniform, 1.0 / maxRGB)
-            else gl.uniform1f(exposureUniform, 1)*/
-
             gl.drawArrays(gl.TRIANGLES, 0, vertexData.length / 2)
         }
     }
-        
-
-    // ### common, generic opengl functions ###
-
-
-    function createTexture(min, mag, wrapX, wrapY){
-        const id = gl.createTexture()
-        gl.bindTexture(gl.TEXTURE_2D, id)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, mag)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, min)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapX)
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapY)
-        return id
-    }
-
-    function updateImageTexture(id, image, mipmap){
-        gl.bindTexture(gl.TEXTURE_2D, id)
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, image)
-        if (mipmap) gl.generateMipmap(gl.TEXTURE_2D)
-    }
-
-    function updateArrayTexture(id, width, height, channels, data){
-        gl.bindTexture(gl.TEXTURE_2D, id)
-        gl.texImage2D(gl.TEXTURE_2D, 0, channels, width, height, 0, channels, gl.UNSIGNED_BYTE, data)
-    }
-
 
     loading.classList.add("hidden") 
 }

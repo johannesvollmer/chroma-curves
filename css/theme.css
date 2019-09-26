@@ -88,3 +88,7 @@ input:checked + label {
 #exposure-checkbox:disabled {
     opacity: 0.3;
 }
+
+circle {
+    pointer-events: all;
+}
