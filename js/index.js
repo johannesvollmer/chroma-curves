@@ -41,7 +41,7 @@ function main(){
 
     gl.clearColor(background, background, background, 1.0)
 
-    const program = shaders.render({ background }) 
+    const program = shaders.render({ background })
 
     const vertexPositionAttribute =  0 // fixed layout instead of gl.getAttribLocation(program, "vertex")
     gl.enableVertexAttribArray(vertexPositionAttribute)
@@ -55,7 +55,7 @@ function main(){
 
     const xmlns = "http://www.w3.org/2000/svg"
 
-    const curve = Array(Math.floor(256/6))
+    const curve = Array(Math.floor(256/1.5))
 
     const points = [ { x: 0.8, y: -0.8, size: 0.003 } ] // [ {x:0, y:-0.3, size: 0.001}, {x:0.5, y:-0.5, size: 0.003}, {x:1, y:-1.0, size: 0.05} ]
     let currentControlPointIndex = null
@@ -235,6 +235,7 @@ function main(){
             histogram.chroma.fill(0.0)
             histogram.hue.fill(0.0)
             
+            // FIXME histogram should respect "auto exposure"
             const pixelCount = pixels.length / 4
             for(let i = 0; i < pixels.length; i += 4){
                 const [l, c, h] = [pixels[i], pixels[i + 1], pixels[i + 2]]
@@ -278,6 +279,13 @@ function main(){
 
         sourceImage.src = src
         original.src = src
+    }
+
+
+
+
+    function updateHistogramCurve(){
+
     }
 
 
