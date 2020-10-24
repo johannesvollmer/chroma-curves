@@ -1,0 +1,1 @@
+spago test --main src/Main.purs
