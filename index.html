@@ -9,129 +9,17 @@
     <link rel="stylesheet" href="css/theme.css">
     <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no"/>
     <meta name="theme-color" content="rgb(255, 53, 154)"/>
-
-    <script type="text/javascript" src="js/gl.js"></script>
-    <script type="text/javascript" src="js/shaders.js"></script>
-    <script type="text/javascript" src="js/view.js"></script>
-    <script type="text/javascript" src="js/index.js"></script>
+    
+    <script src="compiled/app.js"></script>
   </head>
 
   <body>
-    <canvas id="gl">
-      This website expects an up-to-date <i>brauser</i> (WebGl2)
-    </canvas>
-
-    <div id="overlay">
-      <div id="title">
-        <h1>CHROMA CURVES</h1>
-        <a href="https://github.com/johannesvollmer/chroma-curves" target="_blank", rel="noopener noreferrer">learn more</a>
-      </div>
-
-      <label id="image-label">
-        <input type="file" id="image-input" accept="image/*"/><!--
-        --><img id="original" class="content-option" alt="The original Image without any color grading"/><!--
-        --><div id="image-label-content">Click here to choose a file<br>or drop it anywhere on this page</div>
-      </label>
-
-      <div style="display:none" class="content-option" id="axes">
-        depending on
-        <div class="toggle-buttons">
-          <input type="radio" name="input-axis" id="input-luminance" checked><!--
-       --><label for="input-luminance">Luminance</label><!--
-
-       --><input type="radio" name="input-axis" id="input-chroma"><!--
-       --><label for="input-chroma">Chroma</label><!--
-
-       --><input type="radio" name="input-axis" id="input-hue"><!--
-       --><label for="input-hue">Hue</label>
-        </div>,
-        
-        modify&nbsp;<!-- 
-      --><div class="toggle-buttons"><!-- 
-        --><input type="radio" name="output-axis" id="output-luminance" checked><!--
-       --><label for="output-luminance">Luminance</label><!--
-
-       --><input type="radio" name="output-axis" id="output-chroma"><!--
-       --><label for="output-chroma">Chroma</label><!--
-
-       --><input type="radio" name="output-axis" id="output-hue"><!--
-       --><label for="output-hue">Hue</label>.
-        </div>
-      </div>
-
-      <div class="content-option">
-        <h3>View</h3>
-          Visualize out-of-gamut colors: <input id="gamut-border-checkbox" type="checkbox" checked> <br>
-      </div>
-
-      <div class="content-option">
-        <h3>Color Basis</h3>
-          Normalize values to fill unused exposure intervals: <input id="exposure-checkbox" type="checkbox" checked> <br>
-          <br>
-          Pre Dithering Source Image Bitdepth: <span id="pre-dithering-label">8</span> 
-          <input id="pre-dithering-slider" type="range" min="2" max="256" step="0.1" value="8"> <br>
-          <br>
-          Device Whitepoint:  <!-- TODO: let user customize rgb-xyz matrix -->
-          <input type="radio" name="illuminant" id="illuminant-d65-2" checked>Standard Illuminant CIE D50</input>
-          <input type="radio" name="illuminant" id="illuminant-d65-2" >Standard Illuminant CIE D65 2°</input>
-          <input type="radio" name="illuminant" id="illuminant-d65-10" >Standard Illuminant CIE D65 10°</input>
-          <input type="radio" name="illuminant" id="illuminant-d65-10" >ICC</input>
-          <input type="radio" name="illuminant" id="illuminant-custom-values" >
-            X <input id="custom-illuminant-x" type="number" value="1" step="0.01">,
-            Y <input id="custom-illuminant-y" type="number" value="1" step="0.01">,
-            Z <input id="custom-illuminant-z" type="number" value="1" step="0.01">.
-          </input>
-          <br>
-      </div>
-
-      <div id="curve-settings" class="content-option">
-        <h3>Curve Details</h3>
-          Mode: Soft Shift. <br><br>
-          Intensity: <span id="intensity-label">0.0</span> 
-          <input id="intensity-slider" type="range" min="-2" max="2" step="0.0001" value="0"> <br>
-          <input type="button" id="reset-curve" value="Reset">
-      </div>
-      
-
-    </div>
-
-
-    <svg 
-      width="100%" height="100%" 
-      viewBox="0 0 1 1"
-      xmlns:xlink="http://www.w3.org/1999/xlink" 
-      style="pointer-events: none" 
-      class="content-option"
-     >
-      <defs>
-        <symbol id="path-data">
-          <path id="curve-path" vector-effect="non-scaling-stroke"/>
-        </symbol>
-      </defs>
-      
-      <g fill="transparent">
-        <use xlink:href="#path-data" class="path-stroke"/>
-        <use xlink:href="#path-data" class="path-fill"/>
-      </g>
-
-      <g id="control-points" vector-effect="non-scaling-stroke"></g>
-    </svg>
-    
-    <svg 
-      width="100%" height="100%" viewBox="0 0 1 1"
-      style="pointer-events: none" class="content-option"
-    >
-      <path id="histogram-path" vector-effect="non-scaling-stroke"/>
-    </svg>
-
-
-    <div id="loading">
-      Preparing. This should take only a few seconds.
-    </div>
-
+    <div id="app"></div>
 
     <script type="text/javascript">
-      main()
+      var app = Elm.Main.init({
+        node: document.getElementById('app')
+      })
     </script>
   </body>
 </html>
