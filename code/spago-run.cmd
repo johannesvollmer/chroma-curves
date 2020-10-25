@@ -1,1 +1,0 @@
-spago bundle-app --to ../compiled/app.js --watch --source-maps
