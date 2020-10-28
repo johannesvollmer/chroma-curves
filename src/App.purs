@@ -2,34 +2,42 @@ module App (ui) where
 
 import Prelude
 
+import Control.Monad.State.Class (class MonadState)
 import Data.Maybe (Maybe(..))
 import Halogen as Halogen
-import Halogen.HTML (button, HTML, text, div_)
+import Halogen.HTML as HTML
 import Halogen.HTML.Events as Events
 
+type Component = Halogen.Component HTML.HTML
 
+
+type Input = ()
+type State = Int
 data Action = Increment | Decrement
 
-ui :: forall t37 t38 t59 t62. Halogen.Component HTML t62 t59 t38 t37
+ui :: forall query input output effect. 
+  Component query input output effect
+
 ui =
   Halogen.mkComponent
-    { initialState
-    , render
-    , eval: Halogen.mkEval $ Halogen.defaultEval { handleAction = handleAction } -- boilerplate??
+    { initialState, render
+    , eval: Halogen.mkEval $ Halogen.defaultEval { handleAction = handleAction }
     }
 
--- initialState :: forall t26. t26 -> Int
+initialState :: forall input. input -> Int
 initialState _ = 0
 
--- render :: forall t17 t3. Show t17 => t17 -> HTML t3 Action
+render :: forall state input. Show state => 
+  state -> HTML.HTML input Action
+
 render state =
-  div_
-    [ button [ Events.onClick \_ -> Just Decrement ] [ text "-" ]
-    , div_ [ text $ show state ]
-    , button [ Events.onClick \_ -> Just Increment ] [ text "+++" ]
+  HTML.div []
+    [ HTML.button [ Events.onClick \_ -> Just Decrement ] [ HTML.text "-" ]
+    , HTML.div [] [ HTML.text $ show state ]
+    , HTML.button [ Events.onClick \_ -> Just Increment ] [ HTML.text "+++" ]
     ]
 
--- handleAction :: forall t30. MonadState Int t30 => Action -> t30 Unit
-handleAction = case _ of
-  Increment -> Halogen.modify_ \state -> state + 1
-  Decrement -> Halogen.modify_ \state -> state - 1
+handleAction :: forall m. MonadState Int m => Action -> m Unit
+handleAction action = Halogen.modify_ $ \state -> case action of
+  Increment -> state + 1
+  Decrement -> state - 1
