@@ -24,7 +24,7 @@ ui =
     , eval: Halogen.mkEval $ Halogen.defaultEval { handleAction = handleAction }
     }
 
-initialState :: forall input. input -> Int
+initialState :: forall input. input -> State
 initialState _ = 0
 
 render :: forall state input. Show state => 
