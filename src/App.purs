@@ -1,9 +1,10 @@
 module App (ui) where
 
+import Halogen.HTML.CSS
 import Prelude
 
 import Control.Alt ((<|>))
-import DOM.HTML.Indexed.InputAcceptType (mediaType)
+import DOM.HTML.Indexed.InputAcceptType (extension, mediaType)
 import Data.List as List
 import Data.MediaType.Common (imageJPEG, imagePNG)
 import Effect.Aff.Class (class MonadAff)
@@ -20,7 +21,7 @@ type Input = ()
 
 type State = 
   { image :: ImageState
-  , effects :: List.List Effect
+  , effects :: List.List ImageEffect
   }
 
 initialState :: forall input. input -> State
@@ -30,9 +31,9 @@ initialState _ =
   }
 
 data ImageState = NoImage | LoadingImage { name::String } | LoadedImage { name :: String, url :: String } -- , texture :: Texture
-type Effect = {}
+type ImageEffect = {}
 
-data Action = LoadImage File.File | AddEffect Effect
+data Action = LoadImage File.File | AddEffect ImageEffect
 
 ui :: forall query input output effect. MonadAff effect =>
   Component query input output effect
@@ -44,8 +45,7 @@ ui =
     }
 
 
-  -- TODO window [ Events.onDrop \files -> LoadImage <$> head files ] 
-
+-- TODO window [ Events.onDrop \files -> LoadImage <$> head files ] 
 render :: forall input. State -> HTML.HTML input Action
 render state = case state.image of
   NoImage -> HTML.label [] -- , texture
@@ -72,13 +72,12 @@ imageInput = HTML.input
 handleAction :: forall output result. MonadAff result => Action -> Halogen.HalogenM State Action () output result Unit
 handleAction action = case action of
   LoadImage file ->
-    -- if type_ file >>= == Just $ MediaType "image/"
     let name = File.name file in do
       Halogen.modify_ _ { image = LoadingImage { name: name } }
       let dataUrlReader = Reader.readAsDataURL $ File.toBlob file
-      let imageReader = (\url -> LoadedImage { url: url, name: name }) <$> dataUrlReader 
-      image <- Halogen.liftAff $ imageReader <|> pure NoImage
-      Halogen.modify_ \state -> state { image = image } -- , texture = texture
+      let imageFromUrl dataUrlString = LoadedImage { url: dataUrlString, name: name }
+      image <- Halogen.liftAff $ (imageFromUrl <$> dataUrlReader) <|> pure NoImage
+      Halogen.modify_ _ { image = image } -- , texture = texture
 
   AddEffect effect -> Halogen.modify_ \state -> 
     state { effects = List.Cons effect state.effects }
